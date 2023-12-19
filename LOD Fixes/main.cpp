@@ -13,6 +13,8 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 	return true;
 }
 
+static bool bUseSpecular = false;
+
 NiUpdateData NiUpdateData::kDefaultUpdateData = NiUpdateData();
 
 void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
@@ -43,7 +45,7 @@ void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
                     BSShaderProperty* pShaderProp = static_cast<BSShaderProperty*>(pShape->GetProperty(3));
                     pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_BUILDING, true);
                     pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_LANDSCAPE, false);
-                    pShaderProp->SetFlag(BSShaderProperty::BSSP_SPECULAR, false); // vanilla is false
+                    pShaderProp->SetFlag(BSShaderProperty::BSSP_SPECULAR, bUseSpecular); // vanilla is false
                     BSShaderProperty* p30ShaderProp = pShaderProp->PickShader(pShape, 0, 1);
                     if (p30ShaderProp) {
                         pShape->RemoveProperty(3);
@@ -185,6 +187,11 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
 
         // Fix tree LOD being restricted to Point Lookout
         SafeWriteBuf(0x485B60, (void*)"\x8B\x41\x0C\xC3", 4);
+
+        char iniDir[MAX_PATH];
+        GetModuleFileNameA(GetModuleHandle(NULL), iniDir, MAX_PATH);
+        strcpy((char*)(strrchr(iniDir, '\\') + 1), "Data\\NVSE\\Plugins\\LOD-Fixes.ini");
+        bUseSpecular = GetPrivateProfileInt("Main", "bUseSpecular", 0, iniDir);
 	}
 
 	return true;
