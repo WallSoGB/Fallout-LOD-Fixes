@@ -190,7 +190,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
 
         char iniDir[MAX_PATH];
         GetModuleFileNameA(GetModuleHandle(NULL), iniDir, MAX_PATH);
-        strcpy((char*)(strrchr(iniDir, '\\') + 1), "Data\\NVSE\\Plugins\\LOD-Fixes.ini");
+        strcpy((char*)(strrchr(iniDir, '\\') + 1), "Data\\NVSE\\Plugins\\LOD Fixes.ini");
         bUseSpecular = GetPrivateProfileInt("Main", "bUseSpecular", 0, iniDir);
 	}
 
