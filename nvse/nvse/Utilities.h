@@ -281,6 +281,37 @@ const char* GetFormName(UInt32 formId);
 
 #endif
 
+typedef void* (*_FormHeap_Allocate)(UInt32 size);
+extern const _FormHeap_Allocate FormHeap_Allocate;
+
+template <typename T, const UInt32 ConstructorPtr = 0, typename... Args>
+T* New(Args &&... args)
+{
+	auto* alloc = FormHeap_Allocate(sizeof(T));
+	if constexpr (ConstructorPtr)
+	{
+		ThisStdCall(ConstructorPtr, alloc, std::forward<Args>(args)...);
+	}
+	else
+	{
+		memset(alloc, 0, sizeof(T));
+	}
+	return static_cast<T*>(alloc);
+}
+
+typedef void (*_FormHeap_Free)(void* ptr);
+extern const _FormHeap_Free FormHeap_Free;
+
+template <typename T, const UInt32 DestructorPtr = 0, typename... Args>
+void Delete(T* t, Args &&... args)
+{
+	if constexpr (DestructorPtr)
+	{
+		ThisStdCall(DestructorPtr, t, std::forward<Args>(args)...);
+	}
+	FormHeap_Free(t);
+}
+
 template <typename T>
 using game_unique_ptr = std::unique_ptr<T, std::function<void(T*)>>;
 
@@ -310,6 +341,11 @@ UInt8* GetParentBasePtr(void* addressOfReturnAddress, bool lambda = false);
 //Allows function overloading with c++ lambdas.
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 
-#define ASSERT_SIZE(a, b) static_assert(sizeof(a) == b, "Wrong structure size!");
-#define ASSERT_OFFSET(a, b, c) static_assert(offsetof(a, b) == c, "Wrong member offset!");
-#define CREATE_OBJECT(CLASS, ADDRESS) static CLASS* CreateObject() { return StdCall<CLASS*>(ADDRESS); };
+#if RUNTIME
+inline int __cdecl game_toupper(int _C) { return CdeclCall<int>(0xECA7F4, _C); }
+inline int __cdecl game_tolower(int _C) { return CdeclCall<int>(0xEC67AA, _C); }
+#else 
+// GECK and other non-runtime code (ex: steam_loader) probably don't need localized stuff...?
+inline int __cdecl game_toupper(int _C) { return toupper(_C); }
+inline int __cdecl game_tolower(int _C) { return tolower(_C); }
+#endif

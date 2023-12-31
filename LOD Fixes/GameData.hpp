@@ -1209,3 +1209,95 @@ public:
 		return StdCall<bool>(0x4511E0, apCell, abIgnoreBuffered);
 	}
 };
+
+template <typename T_Data>
+class BSSimpleArray {
+public:
+	virtual			~BSSimpleArray();
+	virtual T_Data* Allocate(UInt32 auiCount);
+	virtual void    Deallocate(T_Data* apData);
+	virtual T_Data* Reallocate(T_Data* apData, UInt32 auiCount);
+
+	T_Data* pBuffer;
+	UInt32	uiSize;
+	UInt32	uiAllocSize;
+
+	T_Data* GetAt(UInt32 idx) { return &pBuffer[idx]; }
+};
+
+template <class T_Key, class T_Data> class BSMapItem {
+public:
+	BSMapItem* m_pkNext;
+	T_Key       m_key;
+	T_Data      m_val;
+};
+
+template <class T_Key, class T_Data> class BSMapBase {
+public:
+	virtual                           ~BSMapBase();
+	virtual UInt32                    KeyToHashIndex(T_Key key);
+	virtual bool                      IsKeysEqual(T_Key key1, T_Key key2);
+	virtual void                      SetValue(BSMapItem<T_Key, T_Data>* pkItem, T_Key key, T_Data data);
+	virtual void                      ClearValue(BSMapItem<T_Key, T_Data>* pkItem);
+	virtual BSMapItem<T_Key, T_Data>* NewItem();
+	virtual void                      DeleteItem(BSMapItem<T_Key, T_Data>* pkItem);
+
+	UInt32                      m_uiHashSize;
+	BSMapItem<T_Key, T_Data>**	m_ppkHashTable;
+	UInt32                      m_uiCount;
+
+	bool GetAt(T_Key key, T_Data& dataOut) {
+		UInt32 hashIndex = KeyToHashIndex(key);
+		BSMapItem<T_Key, T_Data>* item = m_ppkHashTable[hashIndex];
+		while (item) {
+			if (IsKeysEqual(item->m_key, key)) {
+				dataOut = item->m_val;
+				return true;
+			}
+			item = item->m_pkNext;
+		}
+		return false;
+	}
+};
+
+class BGSDistantTreeBlock {
+public:
+	struct InstanceData {
+		NiPoint3	kPos;
+		float		fRotZ;
+		float		fScale;
+		UInt32		uiFormID;
+		UInt32		uiTreeGroupIndex;
+		bool		bHidden;
+	};
+
+	struct TreeType {
+		UInt32		uiType;
+		NiPoint2	kSize;
+		NiPoint2	kPosMin;
+		NiPoint2	kPosMax;
+		void*		spTriShapeData;
+	};
+
+
+	class TreeGroup {
+	public:
+		TreeType*						pTreeType;
+		void*							spGeometry;
+		BSSimpleArray<InstanceData>		kInstances;
+		UInt32							uiNum;
+		bool							bShaderPropertyUpToDate;
+	};
+
+	void* pLoadTask;
+	BSSimpleArray<TreeGroup*>			kTreeGroups;
+	BSMapBase<UInt32, InstanceData*>	kInstanceMap;
+	BSMapBase<UInt32, TreeGroup*>		kNextGroup;
+	BSSimpleArray<UInt32>				kUIntArray;
+	BGSTerrainNode*						pNode;
+	bool								bDoneLoading;
+	bool								bAttached;
+	bool								bAllVisible;
+
+	static void __fastcall HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abAddToUIntArray);
+};

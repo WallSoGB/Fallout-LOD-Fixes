@@ -9,7 +9,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "LOD Fixes";
-	info->version = 100;
+	info->version = 110;
 	return true;
 }
 
@@ -175,6 +175,35 @@ void MessageHandler(NVSEMessagingInterface::Message* msg) {
     }
 }
 
+static UInt32 GetRelativeFormID(UInt32 auiFormID) {
+    return auiFormID & 0xFFFFFF;
+}
+
+static UInt32 GetLODFormID(UInt32 auiFormID) {
+    UInt32 uiRelativeFormID = GetRelativeFormID(auiFormID);
+    return uiRelativeFormID | (1u << 24);
+}
+
+void __fastcall BGSDistantTreeBlock::HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abAddToUIntArray) {
+    BGSDistantTreeBlock::InstanceData* pInstance = nullptr;
+    UInt32 uiUsedFormID = aID;
+    bool bTreeFound = false;
+
+    bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
+    if (!bTreeFound) {
+        uiUsedFormID = GetLODFormID(aID);
+        if (uiUsedFormID != aID)
+            bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
+    }
+
+    if (bTreeFound) {
+        pInstance->bHidden = true;
+        (*apThis->kTreeGroups.GetAt(pInstance->uiTreeGroupIndex))->bShaderPropertyUpToDate = false;
+    }
+    else if (abAddToUIntArray) {
+        ThisStdCall(0x7CB2E0, &apThis->kUIntArray, &uiUsedFormID); // Append
+    }
+}
 
 bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	
@@ -185,8 +214,10 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		ReplaceCall(0x6F6011, BGSDistantObjectBlock::Prepare);
 		ReplaceCall(0x6FE0F5, BGSTerrainNode::UpdateBlockVisibility);
 
-        // Fix tree LOD being restricted to Point Lookout
+        // Fix tree LOD not working in TTW
         SafeWriteBuf(0x485B60, (void*)"\x8B\x41\x0C\xC3", 4);
+        for (UInt32 uiAddr : {0x6F9342, 0x6FCCE2, 0x6FCFDF })
+            ReplaceCall(uiAddr, BGSDistantTreeBlock::HideLOD);
 
         char iniDir[MAX_PATH];
         GetModuleFileNameA(GetModuleHandle(NULL), iniDir, MAX_PATH);
