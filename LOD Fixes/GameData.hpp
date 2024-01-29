@@ -28,6 +28,7 @@ class NiTriShape;
 class NiTriStrips;
 class NiControllerManager;
 class NiObjectGroup;
+class NiObjectNET;
 class NiBound;
 class NiViewerStringsArray;
 class NiUpdateData;
@@ -57,6 +58,9 @@ class BGSTerrainChunk;
 class NiProperty;
 class NiNode;
 class BSMultiBoundRoom;
+class TESObjectREFR;
+
+
 
 class NiUpdateData {
 public:
@@ -152,6 +156,141 @@ public:
 	NiTListIterator GetTailPos() const { return m_pkTail; };
 };
 
+
+template <typename T_Data>
+class BSSimpleArray {
+public:
+	virtual			~BSSimpleArray();
+	virtual T_Data* Allocate(UInt32 auiCount);
+	virtual void    Deallocate(T_Data* apData);
+	virtual T_Data* Reallocate(T_Data* apData, UInt32 auiCount);
+
+	T_Data* pBuffer;
+	UInt32	uiSize;
+	UInt32	uiAllocSize;
+
+	T_Data* GetAt(UInt32 idx) { return &pBuffer[idx]; }
+};
+
+typedef void* BSMapIterator;
+
+template <class T_Key, class T_Data> class BSMapItem {
+public:
+	BSMapItem* m_pkNext;
+	T_Key       m_key;
+	T_Data      m_val;
+};
+
+template <class T_Key, class T_Data> class BSMapBase {
+public:
+	virtual                           ~BSMapBase();
+	virtual UInt32                    KeyToHashIndex(T_Key key);
+	virtual bool                      IsKeysEqual(T_Key key1, T_Key key2);
+	virtual void                      SetValue(BSMapItem<T_Key, T_Data>* apTiem, T_Key key, T_Data data);
+	virtual void                      ClearValue(BSMapItem<T_Key, T_Data>* apTiem);
+	virtual BSMapItem<T_Key, T_Data>* NewItem();
+	virtual void                      DeleteItem(BSMapItem<T_Key, T_Data>* apTiem);
+
+	UInt32                      m_uiHashSize;
+	BSMapItem<T_Key, T_Data>** m_ppkHashTable;
+	UInt32                      m_uiCount;
+
+	bool GetAt(T_Key key, T_Data& dataOut) {
+		UInt32 index = KeyToHashIndex(key);
+		BSMapItem<T_Key, T_Data>* item = m_ppkHashTable[index];
+		while (item) {
+			if (IsKeysEqual(item->m_key, key)) {
+				dataOut = item->m_val;
+				return true;
+			}
+			item = item->m_pkNext;
+		}
+		return false;
+	}
+
+	BSMapIterator GetFirstPos() const {
+		for (UInt32 i = 0; i < m_uiHashSize; i++) {
+			if (m_ppkHashTable[i])
+				return m_ppkHashTable[i];
+		}
+		return 0;
+	}
+
+	void GetNext(BSMapIterator& pos, T_Key& key, T_Data& val) {
+		BSMapItem<T_Key, T_Data>* item = (BSMapItem<T_Key, T_Data>*) pos;
+
+		key = item->m_key;
+		val = item->m_val;
+
+		if (item->m_pkNext) {
+			pos = item->m_pkNext;
+			return;
+		}
+
+		UInt32 i = KeyToHashIndex(item->m_key);
+		for (++i; i < m_uiHashSize; i++) {
+			item = m_ppkHashTable[i];
+			if (item) {
+				pos = item;
+				return;
+			}
+		}
+
+		pos = 0;
+	}
+};
+
+
+template <class T_Data>
+class NiPointer {
+public:
+	NiPointer(T_Data* apObject = (T_Data*)0) {
+		m_pObject = apObject;
+		if (m_pObject)
+			m_pObject->IncRefCount();
+	}
+	NiPointer(const NiPointer& arPointer) {
+		m_pObject = arPointer.m_pObject;
+		if (m_pObject)
+			m_pObject->IncRefCount();
+	}
+	~NiPointer() {
+		if (m_pObject)
+			m_pObject->DecRefCount();
+	}
+
+	T_Data* m_pObject;
+
+	__forceinline NiPointer<T_Data>& operator =(const NiPointer& arPointer) {
+		if (m_pObject != arPointer.m_pObject) {
+			if (m_pObject)
+				m_pObject->DecRefCount();
+			m_pObject = arPointer.m_pObject;
+			if (m_pObject)
+				m_pObject->IncRefCount();
+		}
+		return *this;
+	}
+
+	__forceinline NiPointer<T_Data>& operator =(T_Data* apObject) {
+		if (m_pObject != apObject) {
+			if (m_pObject)
+				m_pObject->DecRefCount();
+			m_pObject = apObject;
+			if (m_pObject)
+				m_pObject->IncRefCount();
+		}
+		return *this;
+	}
+
+	__forceinline bool operator==(T_Data* apObject) const { return (m_pObject == apObject); }
+	__forceinline bool operator==(const NiPointer& arPointer) const { return (m_pObject == arPointer.m_pObject); }
+	__forceinline operator bool() const { return m_pObject != nullptr; }
+	__forceinline operator T_Data* () const { return m_pObject; }
+	__forceinline T_Data& operator*() const { return *m_pObject; }
+	__forceinline T_Data* operator->() const { return m_pObject; }
+};
+
 class NiRefObject {
 public:
     virtual			~NiRefObject();
@@ -206,20 +345,70 @@ public:
 	virtual NiObjectGroup*				GetGroup();														// 32 | Used by geometry data
 	virtual void						SetGroup(NiObjectGroup* apGroup);								// 33 | Used by geometry data
 	virtual NiControllerManager*		IsControllerManager() const;									// 34 | Returns this if it's a NiControllerManager, otherwise nullptr
+
+	// 0x6532C0
+	bool IsKindOf(const NiRTTI& apRTTI) const {
+		for (const NiRTTI* i = GetRTTI(); i; i = i->m_pkBaseRTTI) {
+			if (i == &apRTTI)
+				return true;
+		}
+		return false;
+	}
+};
+
+class NiTimeController : public NiObject {
+public:
+	NiTimeController();
+	virtual ~NiTimeController();
+
+	virtual void				Start(float afTime = INFINITY);
+	virtual void				Stop();
+	virtual void				Update(NiUpdateData& apUpdateData);
+	virtual void				SetTarget(NiNode*);
+	virtual void				Unk_27();
+	virtual bool				IsVertexController();
+	virtual float				ComputeScaledTime(float fTime);
+	virtual void				OnPreDisplay();
+	virtual NiTimeController* GetNext();
+	virtual void				Unk_2C();
+
+	enum AnimType {
+		APP_TIME,
+		APP_INIT
+	};
+
+	enum CycleType {
+		LOOP,
+		REVERSE,
+		CLAMP,
+		MAX_CYCLE_TYPES
+	};
+
+	Bitfield16						m_usFlags;
+	float							m_fFrequency;
+	float							m_fPhase;
+	float							m_fLoKeyTime;
+	float							m_fHiKeyTime;
+	float							m_fStartTime;
+	float							m_fLastTime;
+	float							m_fWeightedLastTime;
+	float							m_fScaledTime;
+	NiObjectNET*					m_pkTarget;
+	NiPointer<NiTimeController>		m_spNext;
 };
 
 class NiObjectNET : public NiObject {
 public:
-	const char*	m_kName;
-	void*		m_spControllers;
-	void**		m_ppkExtra;
-	UInt16		m_usExtraDataSize;
-	UInt16		m_usMaxSize;
+	const char*						m_kName;
+	NiPointer<NiTimeController>		m_spControllers;
+	void**							m_ppkExtra;
+	UInt16							m_usExtraDataSize;
+	UInt16							m_usMaxSize;
 };
 
 class NiAVObject : public NiObjectNET {
 public:
-	virtual void			UpdateControllers(NiUpdateData* arData);
+	virtual void			UpdateControllers(NiUpdateData& arData);
 	virtual void			ApplyTransform(NiMatrix3& akMat, NiPoint3& akTrn, bool abOnLeft);
 	virtual void			Unk_39();
 	virtual NiAVObject*		GetObject_(const NiFixedString& kName);
@@ -241,40 +430,38 @@ public:
 	virtual void			PurgeRendererData(NiDX9Renderer* apRenderer);
 
 	enum NiFlags : DWORD {
-		APP_CULLED = UInt32(1) << 0,
-		SELECTIVE_UPDATE = UInt32(1) << 1,
-		SELECTIVE_UPDATE_TRANSFORMS = UInt32(1) << 2,
-		SELECTIVE_UPDATE_CONTROLLER = UInt32(1) << 3,
-		SELECTIVE_UPDATE_RIGID = UInt32(1) << 4,
-		DISPLAY_OBJECT = UInt32(1) << 5,
-		DISABLE_SORTING = UInt32(1) << 6,
-		SELECTIVE_UPDATE_TRANSFORMS_OVERRIDE = UInt32(1) << 7,
-		IS_NODE = UInt32(1) << 8,
-		SAVE_EXTERNAL_GEOM_DATA = UInt32(1) << 9,
-		NO_DECALS = UInt32(1) << 10,
-		ALWAYS_DRAW = UInt32(1) << 11,
-		ACTOR_NODE = UInt32(1) << 12,
-		FIXED_BOUND = UInt32(1) << 13,
-		TOP_FADE_NODE = UInt32(1) << 14, // bFadedIn
-		IGNORE_FADE = UInt32(1) << 15,
-		NO_ANIM_SYNC_X = UInt32(1) << 16,
-		LOD_FADING_OUT = UInt32(1) << 16, // BSFadeNode
-		NO_ANIM_SYNC_Y = UInt32(1) << 17,
-		HAS_MOVING_SOUND = UInt32(1) << 17, // BSFadeNode
-		NO_ANIM_SYNC_Z = UInt32(1) << 18,
-		NO_ANIM_SYNC_S = UInt32(1) << 19,
-		ACTOR_CULLED = UInt32(1) << 20,
-		NO_DISMEMBER_VALIDITY = UInt32(1) << 21,
-		RENDER_USE = UInt32(1) << 22,
-		MATERIALS_APPLIED = UInt32(1) << 23,
-		HIGH_DETAIL = UInt32(1) << 24,
-		FORCE_UPDATE = UInt32(1) << 25,
-		PREPROCESSED_NODE = UInt32(1) << 26,
-		UNK_27 = UInt32(1) << 27,
-		UNK_28 = UInt32(1) << 28,
-		IS_POINTLIGHT = UInt32(1) << 29,
-		DONE_INIT_LIGHTS = UInt32(1) << 30,
-		IS_INSERTED = UInt32(1) << 31
+        APP_CULLED                              = 1u <<  0,
+        SELECTIVE_UPDATE                        = 1u <<  1,
+        SELECTIVE_UPDATE_TRANSFORMS             = 1u <<  2,
+        SELECTIVE_UPDATE_CONTROLLER             = 1u <<  3,
+        SELECTIVE_UPDATE_RIGID                  = 1u <<  4,
+        DISPLAY_OBJECT                          = 1u <<  5,
+        DISABLE_SORTING                         = 1u <<  6,	// Gamebryo's sorter is used only on Tiles
+        SELECTIVE_UPDATE_TRANSFORMS_OVERRIDE    = 1u <<  7,
+		UNK_8									= 1u <<  8,
+        SAVE_EXTERNAL_GEOM_DATA                 = 1u <<  9,
+        NO_DECALS                               = 1u << 10,
+        ALWAYS_DRAW                             = 1u << 11,
+        ACTOR_NODE                              = 1u << 12,
+        FIXED_BOUND                             = 1u << 13,
+        TOP_FADE_NODE                           = 1u << 14,
+        IGNORE_FADE                             = 1u << 15,
+        LOD_FADING_OUT                          = 1u << 16,
+        HAS_MOVING_SOUND                        = 1u << 17,
+		HAS_PROPERTY_CONTROLLER					= 1u << 18,
+        HAS_BOUND		                        = 1u << 19,
+        ACTOR_CULLED                            = 1u << 20,
+        IGNORES_PICKING			                = 1u << 21,
+        RENDER_USE                              = 1u << 22,
+		UNK_23									= 1u << 23,
+        UNK_24		                            = 1u << 24,
+		UNK_25									= 1u << 25,
+		UNK_26									= 1u << 26,
+        UNK_27                                  = 1u << 27,
+        UNK_28                                  = 1u << 28,
+        IS_POINTLIGHT                           = 1u << 29, // Added by JIP
+        DONE_INIT_LIGHTS                        = 1u << 30, // Added by JIP
+        IS_INSERTED                             = 1u << 31  // Added by JIP
 	};
 
 	NiNode*							m_pkParent;
@@ -285,11 +472,13 @@ public:
 	NiTransform						m_kLocal;
 	NiTransform						m_kWorld;
 
-	void SetBit(bool bVal, int uMask) {
+	// FLAGS
+
+	void SetBit(bool bVal, UInt32 uMask) {
 		m_uiFlags.SetBit(uMask, bVal);
 	}
 
-	bool GetBit(int uMask) {
+	bool GetBit(UInt32 uMask) const {
 		return m_uiFlags.GetBit(uMask);
 	}
 
@@ -297,7 +486,7 @@ public:
 		SetBit(bVal, APP_CULLED);
 	}
 
-	bool GetAppCulled() {
+	bool GetAppCulled() const {
 		return GetBit(APP_CULLED);
 	}
 
@@ -305,7 +494,7 @@ public:
 		SetBit(bVal, SELECTIVE_UPDATE);
 	}
 
-	bool GetSelectiveUpdate() {
+	bool GetSelectiveUpdate() const {
 		return GetBit(SELECTIVE_UPDATE);
 	}
 
@@ -313,7 +502,7 @@ public:
 		SetBit(bVal, SELECTIVE_UPDATE_TRANSFORMS);
 	}
 
-	bool GetSelUpdTransforms() {
+	bool GetSelUpdTransforms() const {
 		return GetBit(SELECTIVE_UPDATE_TRANSFORMS);
 	}
 
@@ -321,7 +510,7 @@ public:
 		SetBit(bVal, SELECTIVE_UPDATE_CONTROLLER);
 	}
 
-	bool GetSelUpdController() {
+	bool GetSelUpdController() const {
 		return GetBit(SELECTIVE_UPDATE_CONTROLLER);
 	}
 
@@ -329,7 +518,7 @@ public:
 		SetBit(bVal, SELECTIVE_UPDATE_RIGID);
 	}
 
-	bool GetSelUpdRigid() {
+	bool GetSelUpdRigid() const {
 		return GetBit(SELECTIVE_UPDATE_RIGID);
 	}
 
@@ -337,7 +526,7 @@ public:
 		SetBit(bVal, DISPLAY_OBJECT);
 	}
 
-	bool GetDisplayObject() {
+	bool GetDisplayObject() const {
 		return GetBit(DISPLAY_OBJECT);
 	}
 
@@ -345,7 +534,7 @@ public:
 		SetBit(bVal, DISABLE_SORTING);
 	}
 
-	bool GetDisableSorting() {
+	bool GetDisableSorting() const {
 		return GetBit(DISABLE_SORTING);
 	}
 
@@ -353,23 +542,15 @@ public:
 		SetBit(bVal, SELECTIVE_UPDATE_TRANSFORMS_OVERRIDE);
 	}
 
-	bool GetSelUpdTransformsOverride() {
+	bool GetSelUpdTransformsOverride() const {
 		return GetBit(SELECTIVE_UPDATE_TRANSFORMS_OVERRIDE);
-	}
-
-	void SetIsNode(bool bVal) {
-		SetBit(bVal, IS_NODE);
-	}
-
-	bool GetIsNode() {
-		return GetBit(IS_NODE);
 	}
 
 	void SetSaveExternalGeomData(bool bVal) {
 		SetBit(bVal, SAVE_EXTERNAL_GEOM_DATA);
 	}
 
-	bool GetSaveExternalGeomData() {
+	bool GetSaveExternalGeomData() const {
 		return GetBit(SAVE_EXTERNAL_GEOM_DATA);
 	}
 
@@ -377,7 +558,7 @@ public:
 		SetBit(bVal, NO_DECALS);
 	}
 
-	bool GetNoDecals() {
+	bool GetNoDecals() const {
 		return GetBit(NO_DECALS);
 	}
 
@@ -385,7 +566,7 @@ public:
 		SetBit(bVal, ALWAYS_DRAW);
 	}
 
-	bool GetAlwaysDraw() {
+	bool GetAlwaysDraw() const {
 		return GetBit(ALWAYS_DRAW);
 	}
 
@@ -393,7 +574,7 @@ public:
 		SetBit(bVal, ACTOR_NODE);
 	}
 
-	bool GetActorNode() {
+	bool GetActorNode() const {
 		return GetBit(ACTOR_NODE);
 	}
 
@@ -401,7 +582,7 @@ public:
 		SetBit(bVal, FIXED_BOUND);
 	}
 
-	bool GetFixedBound() {
+	bool GetFixedBound() const {
 		return GetBit(FIXED_BOUND);
 	}
 
@@ -409,7 +590,7 @@ public:
 		SetBit(bVal, TOP_FADE_NODE);
 	}
 
-	bool GetTopFadeNode() {
+	bool GetTopFadeNode() const {
 		return GetBit(TOP_FADE_NODE);
 	}
 
@@ -417,56 +598,56 @@ public:
 		SetBit(bVal, IGNORE_FADE);
 	}
 
-	bool GetIgnoreFade() {
+	bool GetIgnoreFade() const {
 		return GetBit(IGNORE_FADE);
 	}
 
-	void SetNoAnimSyncX(bool bVal) {
-		SetBit(bVal, NO_ANIM_SYNC_X);
+	void SetLODFadingOut(bool bVal) {
+		SetBit(bVal, LOD_FADING_OUT);
 	}
 
-	bool GetNoAnimSyncX() {
-		return GetBit(NO_ANIM_SYNC_X);
+	bool GetLODFadingOut() const {
+		return GetBit(LOD_FADING_OUT);
 	}
 
-	void SetNoAnimSyncY(bool bVal) {
-		SetBit(bVal, NO_ANIM_SYNC_Y);
+	void SetHasMovingSound(bool bVal) {
+		SetBit(bVal, HAS_MOVING_SOUND);
 	}
 
-	bool GetNoAnimSyncY() {
-		return GetBit(NO_ANIM_SYNC_Y);
+	bool GetHasMovingSound() const {
+		return GetBit(HAS_MOVING_SOUND);
 	}
 
-	void SetNoAnimSyncZ(bool bVal) {
-		SetBit(bVal, NO_ANIM_SYNC_Z);
+	void SetHasPropertyController(bool bVal) {
+		SetBit(bVal, HAS_PROPERTY_CONTROLLER);
 	}
 
-	bool GetNoAnimSyncZ() {
-		return GetBit(NO_ANIM_SYNC_Z);
+	bool GetHasPropertyController() const {
+		return GetBit(HAS_PROPERTY_CONTROLLER);
 	}
 
-	void SetNoAnimSyncS(bool bVal) {
-		SetBit(bVal, NO_ANIM_SYNC_S);
+	void SetHasBound(bool bVal) {
+		SetBit(bVal, HAS_BOUND);
 	}
 
-	bool GetNoAnimSyncS() {
-		return GetBit(NO_ANIM_SYNC_S);
+	bool GetHasBound() const {
+		return GetBit(HAS_BOUND);
 	}
 
 	void SetActorCulled(bool bVal) {
 		SetBit(bVal, ACTOR_CULLED);
 	}
 
-	bool GetActorCulled() {
+	bool GetActorCulled() const {
 		return GetBit(ACTOR_CULLED);
 	}
 
-	void SetNoDismemberValidity(bool bVal) {
-		SetBit(bVal, NO_DISMEMBER_VALIDITY);
+	void SetIgnoresPicking(bool bVal) {
+		SetBit(bVal, IGNORES_PICKING);
 	}
 
-	bool GetNoDismemberValidity() {
-		return GetBit(NO_DISMEMBER_VALIDITY);
+	bool GetIgnoresPicking() const {
+		return GetBit(IGNORES_PICKING);
 	}
 
 	// 0x439410
@@ -498,6 +679,10 @@ public:
 	void Update(NiUpdateData& arData) {
 		ThisStdCall(0xA59C60, this, &arData);
 	}
+
+	bool HasPropertyController() const {
+		return ThisStdCall<bool>(0xA5A110, this);
+	}
 };
 
 class NiNode : public NiAVObject {
@@ -514,15 +699,44 @@ public:
 
 	NiTArray<NiAVObject*> m_kChildren;
 
-    UInt32 GetChildCount() {
+    UInt32 GetChildCount() const {
 		return m_kChildren.m_usESize;
     }
 
-	NiAVObject* GetAt(UInt32 index) {
-		if (index >= GetChildCount())
+	UInt32 GetArrayCount() const {
+		return m_kChildren.m_usSize;
+	}
+
+	NiAVObject* GetAt(UInt32 index) const {
+		if (index >= GetArrayCount())
 			return nullptr;
 
 		return m_kChildren.m_pBase[index];
+	}
+
+	static bool HasControllers(const NiAVObject* apObject) {
+		bool bHasControllers = false;
+		bHasControllers = apObject->m_spControllers;
+
+		if (bHasControllers)
+			return true;
+
+		if (apObject->IsKindOf(*(NiRTTI*)0x11F4280))
+			bHasControllers = apObject->HasPropertyController();
+
+		if (bHasControllers)
+			return true;
+
+		if (apObject->IsNiNode()) {
+			const NiNode* pNode = static_cast<const NiNode*>(apObject);
+			for (UInt32 i = 0; i < pNode->GetArrayCount(); i++) {
+				NiAVObject* pChild = pNode->GetAt(i);
+				if (pChild && HasControllers(pChild))
+					return true;
+			}
+		}
+		
+		return false;
 	}
 };
 
@@ -1072,17 +1286,25 @@ public:
 
 class TESWorldSpace;
 class BGSTerrainNode;
+class TESObjectREFR;
 
 class BGSTerrainManager {
 public:
 	TESWorldSpace*		pWorld;
 	BGSTerrainNode*		pRootNode;
 	NiNode*				spLODRoot;
+	UInt32				padding[8];
+	BSSimpleArray<TESObjectREFR*> kTreeRefs; // 0x2C
 
-	void UpdateLODAnimations() {
-		NiUpdateData kUpdateData = NiUpdateData(*(float*)0x11C3C08, true);
-		spLODRoot->UpdateControllers(&kUpdateData);
+	void Update(NiPoint3* apPos, UInt32 aeUpdateType) {
+		ThisStdCall(0x6FCA90, this, apPos, aeUpdateType);
 	}
+
+	BGSDistantTreeBlock* GetDistantTreeBlock(NiPoint3* apPos) {
+		return ThisStdCall<BGSDistantTreeBlock*>(0x6FCEF0, this, apPos);
+	}
+
+	static void __fastcall HideTreeLOD(BGSTerrainManager* apThis, void*, TESObjectREFR* apRefr, bool abRegisterRefr);
 };
 
 class BGSTerrainNode {
@@ -1162,7 +1384,7 @@ public:
 
 	static void __fastcall Prepare(BGSDistantObjectBlock* apThis);
 
-	void ShowRecurse(NiNode* apNode) {
+	void ShowRecurse(NiNode* apNode) const {
 		ThisStdCall(0x6F5A70, this, apNode);
 	}
 };
@@ -1175,17 +1397,36 @@ namespace BSShaderManager {
 
 class TESObjectCELL {
 public:
-	UInt32 filler[208 / 4];
-	bool bCanHideLOD;
+	UInt32	filler[0x26 / 4];
+	UInt8	ucCellFlags;
+	UInt8	ucCellGameFlags;
+	UInt8	ucCellState; // 0x26
+	UInt32	filler2[42];
+	bool	bCanHideLOD; // 0xD0
+
+	enum CellState : UInt32 {
+		CS_NOT_LOADED	= 0,
+		CS_UNLOADING	= 1,
+		CS_LOADING		= 2,
+		CS_LOADED		= 3,
+		CS_DETACHING	= 4,
+		CS_ATTACHING	= 5,
+		CS_ATTACHED		= 6,
+	};
+
+
+	bool IsAttached() const {
+		return ucCellState == CS_ATTACHED;
+	}
 };
 
 class TESWorldSpace {
 public:
-	TESObjectCELL* GetCellAtCoord(SInt32 x, SInt32 y) {
+	TESObjectCELL* GetCellAtCoord(SInt32 x, SInt32 y) const {
 		return ThisStdCall<TESObjectCELL*>(0x5875A0, this, x, y);
 	}
 
-	BGSTerrainManager* GetTerrainManager() {
+	BGSTerrainManager* GetTerrainManager() const {
 		return ThisStdCall<BGSTerrainManager*>(0x586170, this);
 	}
 };
@@ -1207,56 +1448,6 @@ public:
 	// 0x4511E0
 	static bool IsCellLoaded(TESObjectCELL* apCell, bool abIgnoreBuffered) {
 		return StdCall<bool>(0x4511E0, apCell, abIgnoreBuffered);
-	}
-};
-
-template <typename T_Data>
-class BSSimpleArray {
-public:
-	virtual			~BSSimpleArray();
-	virtual T_Data* Allocate(UInt32 auiCount);
-	virtual void    Deallocate(T_Data* apData);
-	virtual T_Data* Reallocate(T_Data* apData, UInt32 auiCount);
-
-	T_Data* pBuffer;
-	UInt32	uiSize;
-	UInt32	uiAllocSize;
-
-	T_Data* GetAt(UInt32 idx) { return &pBuffer[idx]; }
-};
-
-template <class T_Key, class T_Data> class BSMapItem {
-public:
-	BSMapItem* m_pkNext;
-	T_Key       m_key;
-	T_Data      m_val;
-};
-
-template <class T_Key, class T_Data> class BSMapBase {
-public:
-	virtual                           ~BSMapBase();
-	virtual UInt32                    KeyToHashIndex(T_Key key);
-	virtual bool                      IsKeysEqual(T_Key key1, T_Key key2);
-	virtual void                      SetValue(BSMapItem<T_Key, T_Data>* pkItem, T_Key key, T_Data data);
-	virtual void                      ClearValue(BSMapItem<T_Key, T_Data>* pkItem);
-	virtual BSMapItem<T_Key, T_Data>* NewItem();
-	virtual void                      DeleteItem(BSMapItem<T_Key, T_Data>* pkItem);
-
-	UInt32                      m_uiHashSize;
-	BSMapItem<T_Key, T_Data>**	m_ppkHashTable;
-	UInt32                      m_uiCount;
-
-	bool GetAt(T_Key key, T_Data& dataOut) {
-		UInt32 hashIndex = KeyToHashIndex(key);
-		BSMapItem<T_Key, T_Data>* item = m_ppkHashTable[hashIndex];
-		while (item) {
-			if (IsKeysEqual(item->m_key, key)) {
-				dataOut = item->m_val;
-				return true;
-			}
-			item = item->m_pkNext;
-		}
-		return false;
 	}
 };
 
@@ -1293,11 +1484,55 @@ public:
 	BSSimpleArray<TreeGroup*>			kTreeGroups;
 	BSMapBase<UInt32, InstanceData*>	kInstanceMap;
 	BSMapBase<UInt32, TreeGroup*>		kNextGroup;
-	BSSimpleArray<UInt32>				kUIntArray;
+	BSSimpleArray<UInt32>				kFormIDs;
 	BGSTerrainNode*						pNode;
 	bool								bDoneLoading;
 	bool								bAttached;
 	bool								bAllVisible;
 
-	static void __fastcall HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abAddToUIntArray);
+	static void __fastcall HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abRegisterFormID);
+};
+
+class TESForm {
+public:
+	void*	vtable;
+	UInt8	cFormType;
+	UInt8	jipFormFlags1;
+	UInt8	jipFormFlags2;
+	UInt8	jipFormFlags3;
+	UInt32	iFormFlags;
+	UInt32	uiFormID;
+	UInt32	kMods[2];
+
+	UInt32 GetFormID() const {
+		return uiFormID;
+	}
+};
+
+class TESObjectREFR : public TESForm {
+public:
+	NiPoint3* GetPos() const {
+		return ThisStdCall<NiPoint3*>(0x436AA0, this);
+	}
+};
+
+class Actor : public TESObjectREFR {
+public:
+	NiPoint3* GetPos() const {
+		return ThisStdCall<NiPoint3*>(0x8AE4C0, this);
+	}
+};
+
+class PlayerCharacter : public Actor {
+public:
+	UInt32 padding[0x40 / 4];
+	TESObjectCELL* pParentCell;
+
+	static PlayerCharacter* GetSingleton() {
+		return *(PlayerCharacter**)0x11DEA3C;
+	}
+
+	TESObjectCELL* GetParentCell() const {
+		return pParentCell;
+	}
 };

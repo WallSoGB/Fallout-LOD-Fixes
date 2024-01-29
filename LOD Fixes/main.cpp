@@ -1,9 +1,19 @@
 #include "nvse/PluginAPI.h"
 #include "SafeWrite.h"
 #include "GameData.hpp"
+#include <stack>
+#include <chrono>
 
 NVSEInterface* g_nvseInterface{};
 IDebugLog	   gLog("logs\\LOD Fixes.log");
+
+#define LOGGING 0
+
+#if LOGGING
+#define DEBUG_MSG(...) _MESSAGE(__VA_ARGS__)
+#else
+#define DEBUG_MSG(...)
+#endif
 
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
@@ -16,6 +26,8 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 static bool bUseSpecular = false;
 
 NiUpdateData NiUpdateData::kDefaultUpdateData = NiUpdateData();
+
+std::vector<NiPointer<NiAVObject>> kAnimatedLODObjects;
 
 void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
     bool bUseNormalLOD = !apThis->bPrepared || apThis->spSegmentedTriShape && apThis->spNode0C && apThis->spSegmentedTriShape != apThis->spNode0C;
@@ -75,10 +87,14 @@ void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
                     pNode->UpdatePropertiesUpward();
                     pNode->Update(NiUpdateData::kDefaultUpdateData);
                     CdeclCall(0xB57E30, pNode, false, false); // Assign shaders
-
-                    CdeclCall(0xA6D2D0, pNode); // Start animations
                 }
             }
+            bool bHasControllers = NiNode::HasControllers(apThis->spMultiboundNode);
+            if (bHasControllers) {
+                CdeclCall(0xA6D2D0, apThis->spMultiboundNode); // Start animations
+                kAnimatedLODObjects.push_back(apThis->spMultiboundNode);
+            }
+
             apThis->spMultiboundNode->UpdateWorldBound();
             apThis->bPrepared = true;
         }
@@ -163,18 +179,6 @@ void __fastcall BGSTerrainNode::UpdateBlockVisibility(BGSTerrainNode* apThis, vo
     }
 }
 
-void MessageHandler(NVSEMessagingInterface::Message* msg) {
-    TESWorldSpace* pWorld = nullptr;
-
-    switch (msg->type) {
-    case NVSEMessagingInterface::kMessage_MainGameLoop:
-        pWorld = TES::GetSingleton()->GetWorldSpace();
-        if (pWorld)
-            pWorld->GetTerrainManager()->UpdateLODAnimations();
-        break;
-    }
-}
-
 static UInt32 GetRelativeFormID(UInt32 auiFormID) {
     return auiFormID & 0xFFFFFF;
 }
@@ -184,24 +188,86 @@ static UInt32 GetLODFormID(UInt32 auiFormID) {
     return uiRelativeFormID | (1u << 24);
 }
 
-void __fastcall BGSDistantTreeBlock::HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abAddToUIntArray) {
+void __fastcall BGSDistantTreeBlock::HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abRegisterFormID) {
     BGSDistantTreeBlock::InstanceData* pInstance = nullptr;
     UInt32 uiUsedFormID = aID;
     bool bTreeFound = false;
 
-    bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
-    if (!bTreeFound) {
-        uiUsedFormID = GetLODFormID(aID);
-        if (uiUsedFormID != aID)
-            bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
+    DEBUG_MSG("\n===== Hiding trees =====");
+    if (apThis->kInstanceMap.m_uiCount == 0) {
+        DEBUG_MSG("Instance map is empty!");
+    }
+    else {
+        bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
+        if (!bTreeFound) {
+            DEBUG_MSG("Tree %08X not found, trying LOD ID", aID);
+            uiUsedFormID = GetLODFormID(aID);
+            if (uiUsedFormID != aID) {
+                DEBUG_MSG("Trying tree %08X", uiUsedFormID);
+                bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
+            }
+        }
     }
 
     if (bTreeFound) {
+        DEBUG_MSG("Hiding LOD for tree %08X", aID);
         pInstance->bHidden = true;
         (*apThis->kTreeGroups.GetAt(pInstance->uiTreeGroupIndex))->bShaderPropertyUpToDate = false;
     }
-    else if (abAddToUIntArray) {
-        ThisStdCall(0x7CB2E0, &apThis->kUIntArray, &uiUsedFormID); // Append
+    else if (abRegisterFormID) {
+        DEBUG_MSG("Tree %08X not found - adding FormID to array", aID);
+        ThisStdCall(0x7CB2E0, &apThis->kFormIDs, &aID); // Append
+    }
+    else {
+        DEBUG_MSG("Tree %08X not found", aID);
+    }
+}
+
+#if LOGGING
+static void __fastcall BSMap__SetAt(void* apThis, void*, UInt32 auiFormID, BGSDistantTreeBlock::InstanceData* apInstanceData) {
+    DEBUG_MSG("\n ===== Registering tree %08X at %f, %f, %f =====", auiFormID, apInstanceData->kPos.x, apInstanceData->kPos.y, apInstanceData->kPos.z);
+    ThisStdCall(0x6F9A80, apThis, auiFormID, apInstanceData);
+}
+
+static void __fastcall BGSDistantTreeBlockLoadTask__Run(void* apThis) {
+    DEBUG_MSG("\n===== Loading trees =====");
+    ThisStdCall(0x6F9570, apThis);
+}
+
+static BGSDistantTreeBlock* __fastcall BGSDistantTreeBlock__BGSDistantTreeBlock(BGSDistantTreeBlock* apThis, void*, BGSTerrainNode* apNode, int lodLevel, __int16 x, __int16 y) {
+    DEBUG_MSG("\n===== Creating BGSDistantTreeBlock =====");
+    return ThisStdCall<BGSDistantTreeBlock*>(0x6F7540, apThis, apNode, lodLevel, x, y);
+}
+#endif
+
+static void UpdateLODAnimations() {
+    std::stack<NiAVObject*> kRemoveStack;
+    NiUpdateData kUpdateData = NiUpdateData(*(float*)0x11C3C08, true);
+    for (NiAVObject* pObject : kAnimatedLODObjects) {
+        if (pObject) {
+            if (pObject->m_uiRefCount > 2)
+                pObject->UpdateControllers(kUpdateData);
+            else
+                kRemoveStack.push(pObject);
+        }
+    }
+
+    while (!kRemoveStack.empty()) {
+        NiAVObject* pObject = kRemoveStack.top();
+        DEBUG_MSG("Removing object %x, ref count %i", pObject, pObject->m_uiRefCount);
+        kRemoveStack.pop();
+        kAnimatedLODObjects.erase(std::remove(kAnimatedLODObjects.begin(), kAnimatedLODObjects.end(), pObject), kAnimatedLODObjects.end());
+        pObject->DeleteThis();
+    }
+}
+
+static void MessageHandler(NVSEMessagingInterface::Message* msg) {
+    switch (msg->type) {
+    case NVSEMessagingInterface::kMessage_MainGameLoop:
+        UpdateLODAnimations();
+        break;
+    default:
+        break;
     }
 }
 
@@ -209,7 +275,6 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	
 	if (!nvse->isEditor) {
         ((NVSEMessagingInterface*)nvse->QueryInterface(kInterface_Messaging))->RegisterListener(nvse->GetPluginHandle(), "NVSE", MessageHandler);
-
 
 		ReplaceCall(0x6F6011, BGSDistantObjectBlock::Prepare);
 		ReplaceCall(0x6FE0F5, BGSTerrainNode::UpdateBlockVisibility);
@@ -223,6 +288,14 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
         GetModuleFileNameA(GetModuleHandle(NULL), iniDir, MAX_PATH);
         strcpy((char*)(strrchr(iniDir, '\\') + 1), "Data\\NVSE\\Plugins\\LOD Fixes.ini");
         bUseSpecular = GetPrivateProfileInt("Main", "bUseSpecular", 0, iniDir);
+
+        // Debug
+#if LOGGING
+        ReplaceCall(0x6F8621, BSMap__SetAt);
+        ReplaceCall(0x6FE406, BGSDistantTreeBlock__BGSDistantTreeBlock);
+        SafeWrite32(0x106DED4, UInt32(BGSDistantTreeBlockLoadTask__Run));
+#endif
+
 	}
 
 	return true;
