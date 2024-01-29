@@ -661,7 +661,7 @@ public:
 	}
 
 	// 0xA59D30
-	NiProperty* GetProperty(UInt32 auiPropertyType) {
+	NiProperty* GetProperty(UInt32 auiPropertyType) const {
 		return ThisStdCall<NiProperty*>(0xA59D30, this, auiPropertyType);
 	}
 
@@ -683,6 +683,11 @@ public:
 	bool HasPropertyController() const {
 		return ThisStdCall<bool>(0xA5A110, this);
 	}
+
+	NiNode* GetParent() const {
+		return m_pkParent;
+	}
+
 };
 
 class NiNode : public NiAVObject {
@@ -746,6 +751,46 @@ public:
 	virtual void ReparentSkinInstances(NiNode* apNode, NiAVObject* apParent);
 };
 
+class BSMultiBoundShape : public NiObject {
+public:
+	BSMultiBoundShape();
+	virtual ~BSMultiBoundShape();
+	virtual int		GetType();
+
+	enum BSMBShapeType {
+		BSMB_SHAPE_NONE = 0,
+		BSMB_SHAPE_AABB = 1,
+		BSMB_SHAPE_OBB = 2,
+		BSMB_SHAPE_SPHERE = 3,
+		BSMB_SHAPE_CAPSULE = 4,
+	};
+
+	UInt32 eCullResult;
+};
+
+class BSMultiBoundAABB : public BSMultiBoundShape {
+public:
+	BSMultiBoundAABB();
+	virtual ~BSMultiBoundAABB();
+
+	NiPoint3 Center;
+	NiPoint3 HalfExtents;
+};
+
+
+class BSMultiBound : public NiObject {
+public:
+	BSMultiBound();
+	virtual ~BSMultiBound();
+
+	UInt32							uiBoundFrameCount;
+	NiPointer<BSMultiBoundShape>	spShape;
+
+	BSMultiBoundShape* GetShape() const {
+		return spShape.m_pObject;
+	}
+};
+
 class BSMultiBoundNode : public BSNiNode {
 public:
 	virtual BSMultiBoundRoom*	GetMultiBoundRoom();
@@ -753,8 +798,12 @@ public:
 	virtual UInt32				CheckBound(BSMultiBound*);
 	virtual UInt32				CheckBoundAlt(NiBound*);
 
-	BSMultiBound*	spMultiBound;
-	UInt32			uiCullingMode;
+	NiPointer<BSMultiBound>		spMultiBound;
+	UInt32						uiCullingMode;
+
+	BSMultiBound* GetMultiBound() const {
+		return spMultiBound.m_pObject;
+	}
 };
 
 class NiProperty : public NiObjectNET {
@@ -1043,33 +1092,37 @@ public:
 		DIRTY_MASK = 0xFFF,
 	};
 
-	UInt16 m_usVertices;
-	UInt16 m_usID;
-	UInt16 m_usDataFlags;
-	UInt16 m_usDirtyFlags;
-	NiBound m_kBound;
-	NiPoint3* m_pkVertex;
-	NiPoint3* m_pkNormal;
-	NiColorA* m_pkColor;
-	NiPoint2* m_pkTexture;
-	NiAdditionalGeometryData* m_spAdditionalGeomData;
-	NiGeometryBufferData* m_pkBuffData;
-	UInt8 m_ucKeepFlags;
-	UInt8 m_ucCompressFlags;
-	UInt8 Unk3A;
-	UInt8 Unk3B;
-	bool m_bCanSave;
+	UInt16						m_usVertices;
+	UInt16						m_usID;
+	UInt16						m_usDataFlags;
+	UInt16						m_usDirtyFlags;
+	NiBound						m_kBound;
+	NiPoint3*					m_pkVertex;
+	NiPoint3*					m_pkNormal;
+	NiColorA*					m_pkColor;
+	NiPoint2*					m_pkTexture;
+	NiAdditionalGeometryData*	m_spAdditionalGeomData;
+	NiGeometryBufferData*		m_pkBuffData;
+	UInt8						m_ucKeepFlags;
+	UInt8						m_ucCompressFlags;
+	UInt8						Unk3A;
+	UInt8						Unk3B;
+	bool						m_bCanSave;
 
-	void SetKeepFlags(KeepFlags aeFlags) {
+	__forceinline void SetKeepFlags(KeepFlags aeFlags) {
 		m_ucKeepFlags = aeFlags;
 	}
 
-	void SetCompressFlags(Compression aeFlags) {
+	__forceinline void SetCompressFlags(Compression aeFlags) {
 		m_ucCompressFlags = aeFlags;
 	}
 
-	void SetConsistency(Consistency aeFlags) {
+	__forceinline void SetConsistency(Consistency aeFlags) {
 		ThisStdCall(0xA67050, this, aeFlags);
+	}
+
+	__forceinline NiPoint3* GetVertices() const {
+		return m_pkVertex;
 	}
 };
 
@@ -1358,6 +1411,20 @@ public:
 	}
 };
 
+class BGSTerrainChunk {
+public:
+	BGSTerrainNode*							pNode;
+	NiPointer<NiGeometry>					spLandMesh;
+	NiPointer<NiGeometry>					spWaterMesh;
+	NiPointer<NiGeometry>					spWaterReflectMesh;
+	NiPointer<BSMultiBoundNode>				spLandMultiBoundNode;
+	NiPointer<BSMultiBoundNode>				spWaterMultiBoundNode;
+	NiPointer<BSMultiBoundNode>				spWaterReflectMultiBoundNode;
+	// Cut off here...
+
+	static void __fastcall AttachWaterLODEx(BGSTerrainChunk* apThis, void*, bool abForce);
+};
+
 class BGSDistantObjectBlock {
 public:
 	BGSTerrainNode*			pTerrainNode;
@@ -1375,7 +1442,7 @@ public:
     UInt8					byte24;
     UInt32					unk28;
 
-	BSMultiBoundNode* GetMultiBound(bool abUnk) {
+	BSMultiBoundNode* GetMultiBound(bool abUnk) const {
 		if (abUnk)
 			return spNode10;
 		else

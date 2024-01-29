@@ -241,6 +241,50 @@ static BGSDistantTreeBlock* __fastcall BGSDistantTreeBlock__BGSDistantTreeBlock(
 }
 #endif
 
+static void SetWaterMultiBoundHeight(NiGeometry* apWaterMesh) {
+    DEBUG_MSG("[ SetWaterMultiBoundHeight ] Setting AABB height");
+    if (!apWaterMesh) {
+        DEBUG_MSG("[ SetWaterMultiBoundHeight ] Water mesh is null!");
+        return;
+    }
+
+    NiGeometryData* pGeometryData = apWaterMesh->GetModelData();
+    if (!pGeometryData || !pGeometryData->GetVertices()) {
+        return;
+    }
+
+    NiNode* pParent = apWaterMesh->GetParent();
+    if (!pParent || !pParent->IsMultiBoundNode()) {
+        DEBUG_MSG("[ SetWaterMultiBoundHeight ] Water mesh parent is null or not a multi bound node!");
+        return;
+    }
+
+    BSMultiBoundNode* pMultiBoundNode = static_cast<BSMultiBoundNode*>(pParent);
+    BSMultiBound* pMultiBound = pMultiBoundNode->GetMultiBound();
+    if (!pMultiBound) {
+        DEBUG_MSG("[ SetWaterMultiBoundHeight ] MultiBound is null!");
+        return;
+    }
+
+    BSMultiBoundAABB* pMultiBoundAABB = static_cast<BSMultiBoundAABB*>(pMultiBound->GetShape());
+    if (!pMultiBoundAABB || pMultiBoundAABB->GetType() != BSMultiBoundShape::BSMB_SHAPE_AABB) {
+        DEBUG_MSG("[ SetWaterMultiBoundHeight ] MultiBound AABB is null or not an AABB!");
+        return;
+    }
+
+    pMultiBoundAABB->Center.z = pGeometryData->GetVertices()[0].z;
+    pMultiBoundAABB->HalfExtents.z = 1.f;
+
+    apWaterMesh->SetFixedBound(true);
+    pMultiBoundNode->SetFixedBound(true);
+}
+
+void __fastcall BGSTerrainChunk::AttachWaterLODEx(BGSTerrainChunk* apThis, void*, bool abForce) {
+    ThisStdCall(0x6FB170, apThis, abForce);
+    SetWaterMultiBoundHeight(apThis->spWaterMesh);
+    SetWaterMultiBoundHeight(apThis->spWaterReflectMesh);
+}
+
 static void UpdateLODAnimations() {
     std::stack<NiAVObject*> kRemoveStack;
     NiUpdateData kUpdateData = NiUpdateData(*(float*)0x11C3C08, true);
@@ -284,6 +328,9 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
         SafeWriteBuf(0x485B60, (void*)"\x8B\x41\x0C\xC3", 4);
         for (UInt32 uiAddr : {0x6F9342, 0x6FCCE2, 0x6FCFDF })
             ReplaceCall(uiAddr, BGSDistantTreeBlock::HideLOD);
+
+       for (UInt32 uiAddr : {0x6FA964, 0x6FB0C0 })
+            ReplaceCall(uiAddr, BGSTerrainChunk::AttachWaterLODEx);
 
         char iniDir[MAX_PATH];
         GetModuleFileNameA(GetModuleHandle(NULL), iniDir, MAX_PATH);
