@@ -68,6 +68,7 @@ void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
                     pShape->m_pShader = pShader;
                     pShape->UpdatePropertiesUpward();
                     pShape->Update(NiUpdateData::kDefaultUpdateData);
+                    pShape->SetFixedBound(true);
 
                     BGSTerrainNode::UpdateBlockVisibility(apThis->pTerrainNode, 0, 0);
 
