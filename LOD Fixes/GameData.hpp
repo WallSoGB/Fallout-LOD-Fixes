@@ -1427,20 +1427,20 @@ public:
 
 class BGSDistantObjectBlock {
 public:
-	BGSTerrainNode*			pTerrainNode;
-	BSSegmentedTriShape*	spSegmentedTriShape;
-	BSMultiBoundNode*		spMultiboundNode;
-    void*					spNode0C; // old ones?
-	BSMultiBoundNode*		spNode10;
-    void*					spNode14;
-    void*					spDistantObjectBlockLoadTask;
-    void*					spTask2;
-    bool					byte20;
-    bool					bIsAddedToDistantBlocksList;
-    bool					bPrepared;
-    bool					bIsHigh;
-    UInt8					byte24;
-    UInt32					unk28;
+	BGSTerrainNode*					pTerrainNode;
+	NiPointer<BSSegmentedTriShape>	spSegmentedTriShape;
+	NiPointer<BSMultiBoundNode>		spMultiboundNode;
+    void*							spNode0C; // old ones?
+	NiPointer<BSMultiBoundNode>		spNode10;
+    void*							spNode14;
+    void*							spDistantObjectBlockLoadTask;
+    void*							spTask2;
+    bool							byte20;
+    bool							bIsAddedToDistantBlocksList;
+    bool							bPrepared;
+    bool							bIsHigh;
+    UInt8							byte24;
+    UInt32							unk28;
 
 	BSMultiBoundNode* GetMultiBound(bool abUnk) const {
 		if (abUnk)

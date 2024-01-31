@@ -35,7 +35,7 @@ void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
 
     NiDX9Renderer* pRenderer = NiDX9Renderer::GetSingleton();
     if (bUseNormalLOD) {
-        if (apThis->spSegmentedTriShape) {
+        if (apThis->spSegmentedTriShape.m_pObject) {
             UInt32 uiChildCount = apThis->spMultiboundNode->GetChildCount();
 
             for (UInt32 i = 0; i < uiChildCount; i++) {
@@ -93,7 +93,8 @@ void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
             bool bHasControllers = NiNode::HasControllers(apThis->spMultiboundNode);
             if (bHasControllers) {
                 CdeclCall(0xA6D2D0, apThis->spMultiboundNode); // Start animations
-                kAnimatedLODObjects.push_back(apThis->spMultiboundNode);
+                DEBUG_MSG("Adding animated object %x, ref count %i + 1", apThis->spMultiboundNode, apThis->spMultiboundNode->m_uiRefCount);
+                kAnimatedLODObjects.push_back(apThis->spMultiboundNode.m_pObject);
             }
 
             apThis->spMultiboundNode->UpdateWorldBound();
@@ -101,8 +102,8 @@ void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
         }
     }
     if (bUseStinger) {
-        if (apThis->spNode10) {
-            ThisStdCall(0x6F6A90, apThis, apThis->spNode10);
+        if (apThis->spNode10.m_pObject) {
+            ThisStdCall(0x6F6A90, apThis, apThis->spNode10.m_pObject);
             pRenderer->PerformPrecache();
             apThis->bPrepared = true;
         }
@@ -286,23 +287,24 @@ void __fastcall BGSTerrainChunk::AttachWaterLODEx(BGSTerrainChunk* apThis, void*
 }
 
 static void UpdateLODAnimations() {
-    std::stack<NiAVObject*> kRemoveStack;
+    std::stack<NiPointer<NiAVObject>> kRemoveStack;
     NiUpdateData kUpdateData = NiUpdateData(*(float*)0x11C3C08, true);
     for (NiAVObject* pObject : kAnimatedLODObjects) {
         if (pObject) {
             if (pObject->m_uiRefCount > 2)
                 pObject->UpdateControllers(kUpdateData);
-            else
+            else {
+                DEBUG_MSG("Object %x ref count %i, adding to the removal list", pObject, pObject->m_uiRefCount);
                 kRemoveStack.push(pObject);
+            }
         }
     }
 
     while (!kRemoveStack.empty()) {
         NiAVObject* pObject = kRemoveStack.top();
-        DEBUG_MSG("Removing object %x, ref count %i", pObject, pObject->m_uiRefCount);
         kRemoveStack.pop();
+        DEBUG_MSG("Removing object %x, ref count %i", pObject, pObject->m_uiRefCount);
         kAnimatedLODObjects.erase(std::remove(kAnimatedLODObjects.begin(), kAnimatedLODObjects.end(), pObject), kAnimatedLODObjects.end());
-        pObject->DeleteThis();
     }
 }
 
