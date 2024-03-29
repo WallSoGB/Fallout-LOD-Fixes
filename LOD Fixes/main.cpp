@@ -19,7 +19,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "LOD Fixes";
-	info->version = 126;
+    info->version = 127;
 	return true;
 }
 
@@ -120,7 +120,7 @@ void __fastcall BGSTerrainNode::UpdateBlockVisibility(BGSTerrainNode* apThis, vo
             if (apThis->IsPlayerInRange()) {
                 for (SInt32 x = 0; x < apThis->uiLODLevel; ++x) {
                     for (SInt32 y = 0; y < apThis->uiLODLevel; ++y) {
-                        SInt32 uiLevel = y + x * apThis->uiLODLevel;
+                        UInt32 uiLevel = y + x * apThis->uiLODLevel;
                         
 
                         TESObjectCELL* pCell = pWorldspace->GetCellAtCoord(x + apThis->GetCellX(), y + apThis->GetCellY());
