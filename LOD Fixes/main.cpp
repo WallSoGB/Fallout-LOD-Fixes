@@ -308,6 +308,58 @@ static void UpdateLODAnimations() {
     }
 }
 
+namespace WaterReflectionFix {
+    static bool* const bForceHighDetailReflections = (bool*)0x11C7C04;
+    static float fOrgLODDrop = 0.f;
+    static std::vector<BSSegmentedTriShape*> kShapesToRestore;
+
+    static void ToggleLODRecurse(NiAVObject* apObject, bool abIgnore) {
+        if (!apObject)
+            return;
+
+        if (apObject->IsNiNode()) {
+            NiNode* pNode = (NiNode*)apObject;
+            for (UInt32 i = 0; i < pNode->GetArrayCount(); i++)
+                ToggleLODRecurse(pNode->GetAt(i), abIgnore);
+        }
+        else if (apObject->IsSegmentedTriShape()) {
+            BSSegmentedTriShape* pSegTriShape = (BSSegmentedTriShape*)apObject;
+            pSegTriShape->bIgnoreSegments = abIgnore;
+            if (abIgnore) {
+                if (!pSegTriShape->pSegments[0].bVisible) {
+                    kShapesToRestore.push_back(pSegTriShape);
+                }
+                pSegTriShape->pSegments[0].bVisible = true;
+            }
+        }
+    }
+
+    static void __stdcall ShowLOD() {
+        if (*bForceHighDetailReflections)
+            return;
+
+        NiNode* pRoot = *(NiNode**)0x11D8690;
+        float fOrgLODDrop = BSShaderManager::GetLODLandDrop();
+        BSShaderManager::SetLODLandDrop(0.f);
+        ToggleLODRecurse(pRoot, true);
+
+    }
+
+    static void __stdcall HideLOD() {
+        if (*bForceHighDetailReflections)
+            return;
+
+        NiNode* pRoot = *(NiNode**)0x11D8690;
+        ToggleLODRecurse(pRoot, false);
+        BSShaderManager::SetLODLandDrop(fOrgLODDrop);
+
+        for (BSSegmentedTriShape* pShape : kShapesToRestore) {
+            pShape->pSegments[0].bVisible = false;
+        }
+        kShapesToRestore.clear();
+    }
+}
+
 static void MessageHandler(NVSEMessagingInterface::Message* msg) {
     switch (msg->type) {
     case NVSEMessagingInterface::kMessage_MainGameLoop:
@@ -331,7 +383,12 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
         for (UInt32 uiAddr : {0x6F9342, 0x6FCCE2, 0x6FCFDF })
             ReplaceCall(uiAddr, BGSDistantTreeBlock::HideLOD);
 
-       for (UInt32 uiAddr : {0x6FA964, 0x6FB0C0 })
+        // Fix object LOD not reflecting in water
+        ReplaceCall(0x4EB6C6, WaterReflectionFix::ShowLOD);
+        ReplaceCall(0x4EB893, WaterReflectionFix::HideLOD);
+
+        // Fix water LOD multibound height
+        for (UInt32 uiAddr : {0x6FA964, 0x6FB0C0 })
             ReplaceCall(uiAddr, BGSTerrainChunk::AttachWaterLODEx);
 
         char iniDir[MAX_PATH];

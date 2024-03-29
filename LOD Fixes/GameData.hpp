@@ -1140,11 +1140,11 @@ public:
 class BSSegmentedTriShape : public NiTriShape {
 public:
 	struct Segment {
-		UInt32 uiStartIndex;
-		UInt32 uiNumPrimitives;
-		bool bIsEnabled;
-		UInt32 uiTriCount;
-		bool ucDisabledCount;
+		UInt32	uiStartIndex;
+		UInt32	uiNumPrimitives;
+		bool	bIsEnabled;
+		UInt32	uiTriCount;
+		bool	bVisible;
 	};
 
 	Segment* pSegments;
@@ -1459,6 +1459,14 @@ public:
 namespace BSShaderManager {
 	static inline BSShader* GetShader(UInt32 aiShaderIndex) {
 		return CdeclCall<BSShader*>(0xB55560, aiShaderIndex);
+	}
+
+	static float GetLODLandDrop() {
+		return *(float*)0x11AD808;
+	}
+
+	static void SetLODLandDrop(float afDrop) {
+		*(float*)0x11AD808 = afDrop;
 	}
 }
 
