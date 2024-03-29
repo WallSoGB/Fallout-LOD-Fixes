@@ -19,7 +19,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "LOD Fixes";
-    info->version = 127;
+    info->version = 128;
 	return true;
 }
 
@@ -339,7 +339,7 @@ namespace WaterReflectionFix {
             return;
 
         NiNode* pRoot = *(NiNode**)0x11D8690;
-        float fOrgLODDrop = BSShaderManager::GetLODLandDrop();
+        fOrgLODDrop = BSShaderManager::GetLODLandDrop();
         BSShaderManager::SetLODLandDrop(0.f);
         ToggleLODRecurse(pRoot, true);
 
