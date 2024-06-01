@@ -74,8 +74,7 @@ void __fastcall BGSDistantObjectBlock::Prepare(BGSDistantObjectBlock* apThis) {
 
                     NiGeometryData* pModelData = pShape->GetModelData();
                     pModelData->SetKeepFlags(NiGeometryData::KEEP_NONE);
-                    pModelData->SetConsistency(NiGeometryData::MUTABLE);
-                    pModelData->SetCompressFlags(NiGeometryData::COMPRESS_NORM);
+                    pModelData->SetConsistency(NiGeometryData::STATIC);
 
                     pRenderer->PrecacheGeometry(pShape, 0, 0, pShader->GetShaderDeclaration(pShape, pShaderProp));
                     pRenderer->PerformPrecache();
