@@ -19,7 +19,7 @@ bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
 {
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "LOD Fixes";
-    info->version = 128;
+    info->version = 129;
 	return true;
 }
 
