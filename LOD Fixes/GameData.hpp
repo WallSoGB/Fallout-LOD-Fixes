@@ -94,6 +94,11 @@ public:
 	float x, y, z;
 };
 
+class NiColor {
+public:
+	float r, g, b;
+};
+
 class NiColorA {
 public:
 	float r, g, b, a;
@@ -361,16 +366,16 @@ public:
 	NiTimeController();
 	virtual ~NiTimeController();
 
-	virtual void				Start(float afTime = INFINITY);
-	virtual void				Stop();
-	virtual void				Update(NiUpdateData& apUpdateData);
-	virtual void				SetTarget(NiNode*);
-	virtual void				Unk_27();
-	virtual bool				IsVertexController();
-	virtual float				ComputeScaledTime(float fTime);
-	virtual void				OnPreDisplay();
-	virtual NiTimeController* GetNext();
-	virtual void				Unk_2C();
+	virtual void				Start(float afTime = INFINITY);	
+	virtual void				Stop();							
+	virtual void				Update(NiUpdateData& arUpdateData);
+	virtual void				SetTarget(NiObjectNET* apTarget);
+	virtual bool				IsTransformController() const;	
+	virtual bool				IsVertexController() const;		
+	virtual float				ComputeScaledTime(float fTime);	
+	virtual void				OnPreDisplay() const;			
+	virtual bool				IsStreamable() const;			
+	virtual bool				TargetIsRequiredType() const;	
 
 	enum AnimType {
 		APP_TIME,
@@ -810,6 +815,16 @@ class NiProperty : public NiObjectNET {
 public:
 	virtual UInt32	Type();
 	virtual void	Update(NiUpdateData* pUpdateData);
+
+	enum PropertyType {
+		ALPHA,
+		CULLING,
+		MATERIAL,
+		SHADE,
+		STENCIL,
+		TEXTURING,
+		MAX_TYPES
+	};
 };
 
 class NiAlphaProperty : public NiProperty {
@@ -901,6 +916,24 @@ public:
 	void SetTestMode(TestFunction aeTestFunc) {
 		m_usFlags.SetField(aeTestFunc, TEST_FUNC_MASK, TEST_FUNC_POS);
 	}
+};
+
+class NiMaterialProperty : public NiProperty {
+public:
+	NiMaterialProperty();
+	virtual ~NiMaterialProperty();
+
+	SInt32		m_iIndex;
+	NiColor		m_spec;
+	NiColor		m_emit;
+	NiColor*	m_pExternalEmittance;
+	float		m_fShine;
+	float		m_fAlpha;
+	float		m_fEmitMult;
+	UInt32		m_uiRevID;
+	void*		m_pvRendererData;
+
+	CREATE_OBJECT(NiMaterialProperty, 0xA756D0); 
 };
 
 class NiShadeProperty : public NiProperty {
@@ -1346,7 +1379,17 @@ public:
 	TESWorldSpace*		pWorld;
 	BGSTerrainNode*		pRootNode;
 	NiNode*				spLODRoot;
-	UInt32				padding[8];
+	NiNode*				spWaterLODNode;
+	UInt32				kCoordNW;
+	UInt32				kCoordSE;
+	UInt32				uiMaxLevel;
+	UInt32				uiMinLevel;
+	UInt32				uiRootLevel;
+	UInt32				uiLODLevel;
+	bool				bNeedsImmediateUpdate;
+	bool				bHasLOD;
+	bool				byte2A;
+	bool				byte2B;
 	BSSimpleArray<TESObjectREFR*> kTreeRefs; // 0x2C
 
 	void Update(NiPoint3* apPos, UInt32 aeUpdateType) {
@@ -1396,7 +1439,7 @@ public:
 	bool					byte5E;
 	bool					byte5F;
 
-	static void __fastcall UpdateBlockVisibility(BGSTerrainNode* apThis, void*, bool);
+	void UpdateBlockVisibility(bool);
 
 	bool IsPlayerInRange() {
 		return ThisStdCall(0x6FEDE0, this);
@@ -1422,7 +1465,9 @@ public:
 	NiPointer<BSMultiBoundNode>				spWaterReflectMultiBoundNode;
 	// Cut off here...
 
-	static void __fastcall AttachWaterLODEx(BGSTerrainChunk* apThis, void*, bool abForce);
+	void AttachWaterLOD(bool abForce);
+
+	void InitializeShaderProperty();
 };
 
 class BGSDistantObjectBlock {
@@ -1449,7 +1494,7 @@ public:
 			return spMultiboundNode;
 	}
 
-	static void __fastcall Prepare(BGSDistantObjectBlock* apThis);
+	void Prepare();
 
 	void ShowRecurse(NiNode* apNode) const {
 		ThisStdCall(0x6F5A70, this, apNode);
@@ -1459,6 +1504,10 @@ public:
 namespace BSShaderManager {
 	static inline BSShader* GetShader(UInt32 aiShaderIndex) {
 		return CdeclCall<BSShader*>(0xB55560, aiShaderIndex);
+	}
+
+	static inline void AssignShaders(NiAVObject* apObject, bool abKeepUV, bool abNoPrecache) {
+		CdeclCall(0xB57E30, apObject, abKeepUV, abNoPrecache);
 	}
 
 	static float GetLODLandDrop() {
@@ -1568,6 +1617,22 @@ public:
 	static void __fastcall HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abRegisterFormID);
 };
 
+class TESFile {
+public:
+	UInt32	padding[0x20 / 4];
+	char	cFilename[260];
+	char	cPath[260];
+
+	void* GetListMasters() const {
+		return ThisStdCall<void*>(0x464DF0, this);
+	}
+
+	bool HasMasters() const {
+		return !ThisStdCall<bool>(0x8256D0, GetListMasters());
+	}
+};
+ASSERT_OFFSET(TESFile, cFilename, 0x20);
+
 class TESForm {
 public:
 	void*	vtable;
@@ -1581,6 +1646,14 @@ public:
 
 	UInt32 GetFormID() const {
 		return uiFormID;
+	}
+
+	UInt32 GetMasterCount() const {
+		return ThisStdCall(0x5504E0, this);
+	}
+
+	TESFile* GetFile(SInt32 aiFile) const {
+		return ThisStdCall<TESFile*>(0x484E60, this, aiFile);
 	}
 };
 
