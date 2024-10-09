@@ -4,6 +4,9 @@
     <Filter Include="nvse">
       <UniqueIdentifier>{92a4f350-f2ec-4fca-bdd3-927732d91b34}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Allocator">
+      <UniqueIdentifier>{7758905b-e47a-4047-ae1b-821351a309c0}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\nvse\nvse\SafeWrite.cpp">
@@ -11,12 +14,18 @@
     </ClCompile>
     <ClCompile Include="dllmain.c" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Allocator\BSMemory.cpp">
+      <Filter>Allocator</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\nvse\nvse\SafeWrite.h">
       <Filter>nvse</Filter>
     </ClInclude>
     <ClInclude Include="GameData.hpp" />
+    <ClInclude Include="Allocator\BSMemory.hpp">
+      <Filter>Allocator</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="exports.def" />

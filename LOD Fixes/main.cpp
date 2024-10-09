@@ -1,6 +1,9 @@
 #include "nvse/PluginAPI.h"
 #include "GameData.hpp"
 #include "stack"
+#include "Allocator/BSMemory.hpp"
+
+BS_ALLOCATORS
 
 NVSEInterface* g_nvseInterface{};
 IDebugLog	   gLog("logs\\LOD Fixes.log");

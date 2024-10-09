@@ -303,6 +303,7 @@ copy "$(TargetDir)$(TargetName).pdb" "C:\Symbols\$(TargetName).pdb"</Command>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\nvse\nvse\SafeWrite.cpp" />
+    <ClCompile Include="Allocator\BSMemory.cpp" />
     <ClCompile Include="dllmain.c">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
       </ForcedIncludeFiles>
@@ -319,6 +320,7 @@ copy "$(TargetDir)$(TargetName).pdb" "C:\Symbols\$(TargetName).pdb"</Command>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\nvse\nvse\SafeWrite.h" />
+    <ClInclude Include="Allocator\BSMemory.hpp" />
     <ClInclude Include="GameData.hpp" />
   </ItemGroup>
   <ItemGroup>
