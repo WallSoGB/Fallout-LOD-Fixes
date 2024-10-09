@@ -20,7 +20,7 @@ IDebugLog	   gLog("logs\\LOD Fixes.log");
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info) {
 	info->infoVersion   = PluginInfo::kInfoVersion;
 	info->name          = "LOD Fixes";
-    info->version       = 130;
+    info->version       = 131;
 	return !nvse->isEditor;
 }
 
