@@ -14,12 +14,11 @@ IDebugLog	   gLog("logs\\LOD Fixes.log");
 #define DEBUG_MSG(...)
 #endif
 
-bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info)
-{
-	info->infoVersion = PluginInfo::kInfoVersion;
-	info->name = "LOD Fixes";
-    info->version = 130;
-	return true;
+bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info) {
+	info->infoVersion   = PluginInfo::kInfoVersion;
+	info->name          = "LOD Fixes";
+    info->version       = 130;
+	return !nvse->isEditor;
 }
 
 static bool bUseSpecular = false;
@@ -31,160 +30,167 @@ NiUpdateData NiUpdateData::kDefaultUpdateData = NiUpdateData();
 std::vector<NiPointer<NiAVObject>> kAnimatedLODObjects;
 
 void BGSDistantObjectBlock::Prepare() {
-    bool bUseNormalLOD = !bPrepared || spSegmentedTriShape && spNode0C && spSegmentedTriShape != spNode0C;
-    bool bUseStinger = !bPrepared || spNode10 && spNode14 && spNode10 != spNode14;
+    bool bUseNormalLOD = !bPrepared || spShape && spPreviousShape && spShape != spPreviousShape;
+    bool bUseStinger = !bPrepared || spStingerBlock && spPreviousBlock && spStingerBlock != spPreviousBlock;
 
     NiDX9Renderer* pRenderer = NiDX9Renderer::GetSingleton();
-    if (bUseNormalLOD) {
-        if (spSegmentedTriShape.m_pObject) {
-            UInt32 uiChildCount = spMultiboundNode->GetChildCount();
+    if (bUseNormalLOD && spShape.m_pObject) {
+        UInt32 uiChildCount = spBlock->GetChildCount();
 
-            for (UInt32 i = 0; i < uiChildCount; i++) {
-                NiAVObject* pChild = spMultiboundNode->GetAt(i);
-                if (pChild->IsSegmentedTriShape()) {
-                    BSSegmentedTriShape* pShape = static_cast<BSSegmentedTriShape*>(pChild);
-                    pShape->RemoveProperty(NiProperty::ALPHA);
+        for (UInt32 i = 0; i < uiChildCount; i++) {
+            NiAVObject* pChild = spBlock->GetAt(i);
+            if (IS_SEGMENTEDTRISHAPE(pChild)) {
+                BSSegmentedTriShape* pShape = static_cast<BSSegmentedTriShape*>(pChild);
+                pShape->RemoveProperty(NiProperty::ALPHA);
 
-                    NiAlphaProperty* pAlphaProp = NiAlphaProperty::CreateObject();
+                NiAlphaProperty* pAlphaProp = NiAlphaProperty::CreateObject();
 
+                pAlphaProp->m_usFlags.Clear();
+                pAlphaProp->SetAlphaTesting(true);
+                pAlphaProp->SetAlphaBlending(false);
+                pAlphaProp->SetTestRef(128u);
+                pAlphaProp->SetTestMode(NiAlphaProperty::TEST_GREATER);
+                pShape->AddProperty(pAlphaProp);
 
-                    pAlphaProp->m_usFlags.Clear();
-                    pAlphaProp->SetAlphaTesting(true);
-                    pAlphaProp->SetAlphaBlending(false);
-                    pAlphaProp->SetTestRef(128u);
-                    pAlphaProp->SetTestMode(NiAlphaProperty::TEST_GREATER);
-                    pShape->AddProperty(pAlphaProp);
-
-                    if (bUseSpecular) {
-                        static NiPointer<NiMaterialProperty> spDefaultMaterial = NiMaterialProperty::CreateObject();
-                        spDefaultMaterial->m_fShine = uiSpecularShine;
-                        pShape->AddProperty(spDefaultMaterial);
-                    }
-
-                    BSShaderProperty* pShaderProp = static_cast<BSShaderProperty*>(pShape->GetProperty(3));
-                    pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_BUILDING, true);
-                    pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_LANDSCAPE, false);
-                    pShaderProp->SetFlag(BSShaderProperty::BSSP_SPECULAR, bUseSpecular); // vanilla is false
-                    BSShaderProperty* p30ShaderProp = pShaderProp->PickShader(pShape, 0, 1);
-                    if (p30ShaderProp) {
-                        pShape->RemoveProperty(NiProperty::SHADE);
-                        pShaderProp = p30ShaderProp;
-                        pShape->AddProperty(p30ShaderProp);
-                    }
-                    BSShader* pShader = BSShaderManager::GetShader(pShaderProp->uiShaderIndex);
-                    pShape->m_pShader = pShader;
-                    pShape->UpdatePropertiesUpward();
-                    pShape->Update(NiUpdateData::kDefaultUpdateData);
-                    pShape->SetFixedBound(true);
-
-                    pTerrainNode->UpdateBlockVisibility(false);
-
-                    NiGeometryData* pModelData = pShape->GetModelData();
-                    pModelData->SetKeepFlags(NiGeometryData::KEEP_NONE);
-                    pModelData->SetConsistency(NiGeometryData::STATIC);
-
-                    pRenderer->PrecacheGeometry(pShape, 0, 0, pShader->GetShaderDeclaration(pShape, pShaderProp));
-                    pRenderer->PerformPrecache();
+                if (bUseSpecular) {
+                    static NiPointer<NiMaterialProperty> spDefaultMaterial = NiMaterialProperty::CreateObject();
+                    spDefaultMaterial->m_fShine = uiSpecularShine;
+                    pShape->AddProperty(spDefaultMaterial);
                 }
-                else if (pChild->IsNiNode()) {
-                    NiNode* pNode = static_cast<NiNode*>(pChild);
-                    pNode->SetAppCulled(false);
-                    CdeclCall(0x4B5D10, pNode); // Remove debug markers
-                    pNode->CreateWorldBoundIfMissing();
-                    pNode->UpdatePropertiesUpward();
-                    pNode->Update(NiUpdateData::kDefaultUpdateData);
-                    BSShaderManager::AssignShaders(pNode, false, false);
-                }
-            }
-            bool bHasControllers = NiNode::HasControllers(spMultiboundNode);
-            if (bHasControllers) {
-                CdeclCall(0xA6D2D0, spMultiboundNode); // Start animations
-                DEBUG_MSG("Adding animated object %x, ref count %i + 1", spMultiboundNode, spMultiboundNode->m_uiRefCount);
-                kAnimatedLODObjects.push_back(spMultiboundNode.m_pObject);
-            }
 
-            spMultiboundNode->UpdateWorldBound();
-            bPrepared = true;
+                BSShaderProperty* pShaderProp = static_cast<BSShaderProperty*>(pShape->GetProperty(NiProperty::SHADE));
+                pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_BUILDING, true);
+                pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_LANDSCAPE, false);
+                pShaderProp->SetFlag(BSShaderProperty::BSSP_SPECULAR, bUseSpecular); // vanilla is false
+                BSShaderProperty* p30ShaderProp = pShaderProp->PickShader(pShape, 0, 1);
+                if (p30ShaderProp) {
+                    pShape->RemoveProperty(NiProperty::SHADE);
+                    pShaderProp = p30ShaderProp;
+                    pShape->AddProperty(p30ShaderProp);
+                }
+                BSShader* pShader = BSShaderManager::GetShader(pShaderProp->uiShaderIndex);
+                pShape->m_pShader = pShader;
+                pShape->UpdatePropertiesUpward();
+                pShape->Update(NiUpdateData::kDefaultUpdateData);
+                pShape->SetFixedBound(true);
+
+                pTerrainNode->UpdateBlockVisibility(false);
+
+                NiGeometryData* pModelData = pShape->GetModelData();
+                pModelData->SetKeepFlags(NiGeometryData::KEEP_NONE);
+                pModelData->SetConsistency(NiGeometryData::STATIC);
+
+                pRenderer->PrecacheGeometry(pShape, 0, 0, pShader->GetShaderDeclaration(pShape, pShaderProp));
+                pRenderer->PerformPrecache();
+            }
+            else if (IS_NODE(pChild)) {
+                NiNode* pNode = static_cast<NiNode*>(pChild);
+                pNode->SetAppCulled(false);
+                CdeclCall(0x4B5D10, pNode); // Remove debug markers
+                pNode->CreateWorldBoundIfMissing();
+                pNode->UpdatePropertiesUpward();
+                pNode->Update(NiUpdateData::kDefaultUpdateData);
+                BSShaderManager::AssignShaders(pNode, false, false);
+            }
         }
+
+        if (NiNode::HasControllers(spBlock)) {
+            CdeclCall(0xA6D2D0, spBlock); // Start animations
+            DEBUG_MSG("Adding animated object %x, ref count %i + 1", spBlock, spBlock->m_uiRefCount);
+            kAnimatedLODObjects.push_back(spBlock.m_pObject);
+        }
+
+        spBlock->UpdateWorldBound();
+        bPrepared = true;
     }
-    if (bUseStinger) {
-        if (spNode10.m_pObject) {
-            ThisStdCall(0x6F6A90, this, spNode10.m_pObject);
-            pRenderer->PerformPrecache();
-            bPrepared = true;
-        }
+
+    if (bUseStinger && spStingerBlock.m_pObject) {
+        PrepareStinger(spStingerBlock.m_pObject);
+        pRenderer->PerformPrecache();
+        bPrepared = true;
     }
 }
 
 void BGSTerrainNode::UpdateBlockVisibility(bool) {
     TES* pTES = TES::GetSingleton();
     TESWorldSpace* pWorldspace = TES::GetWorldSpace();
-    if (pObjectBlock) {
-        BSSegmentedTriShape* pSegmentedTriShape = pObjectBlock->spSegmentedTriShape;
-        BSMultiBoundNode* pMultiBoundNode = pObjectBlock->GetMultiBound(false);
-        if (pSegmentedTriShape) {
-            if (IsPlayerInRange()) {
-                for (SInt32 x = 0; x < uiLODLevel; ++x) {
-                    for (SInt32 y = 0; y < uiLODLevel; ++y) {
-                        UInt32 uiLevel = y + x * uiLODLevel;
-                        
+    if (!pObjectBlock)
+        return;
 
-                        TESObjectCELL* pCell = pWorldspace->GetCellAtCoord(x + GetCellX(), y + GetCellY());
-                        bool bIsLoaded = TES::IsCellLoaded(pCell, true);
+    BSSegmentedTriShape* pSegmentedShape = pObjectBlock->spShape;
+    if (pSegmentedShape) {
+        BSMultiBoundNode* pBlock = pObjectBlock->GetBlock(false);
+        if (IsPlayerInRange()) {
+            for (SInt32 x = 0; x < uiLODLevel; ++x) {
+                for (SInt32 y = 0; y < uiLODLevel; ++y) {
+                    UInt32 uiLevel = y + x * uiLODLevel;
 
-                        for (UInt32 uiObject = 0; uiObject < pMultiBoundNode->GetChildCount(); uiObject++) {
-                            NiAVObject* pChild = pMultiBoundNode->GetAt(uiObject);
-                            if (pChild && pChild->IsSegmentedTriShape()) {
-                                pSegmentedTriShape = static_cast<BSSegmentedTriShape*>(pChild);
-                                if (uiLevel < pSegmentedTriShape->GetNumSegments()) {
-                                    if (bIsLoaded && !pSegmentedTriShape->IsSegmentEmpty(uiLevel) && pCell->bCanHideLOD)
-                                        pSegmentedTriShape->DisableSegment(uiLevel);
-                                    else
-                                        pSegmentedTriShape->EnableSegment(uiLevel);
-                                }
-                            }
-                        }
+                    TESObjectCELL* pCell = pWorldspace->GetCellAtCoord(x + GetCellX(), y + GetCellY());
+                    bool bIsLoaded = TES::IsCellLoaded(pCell, true);
+
+                    for (UInt32 uiObject = 0; uiObject < pBlock->GetArrayCount(); uiObject++) {
+                        NiAVObject* pChild = pBlock->GetAt(uiObject);
+                        if (!pChild || !IS_SEGMENTEDTRISHAPE(pChild))
+                            continue;
+
+                        // Intentional overwrite - spShape is a child of the multibound node
+                        // We are handling multiple segmented trishapes instead of just one
+                        pSegmentedShape = static_cast<BSSegmentedTriShape*>(pChild);
+                        if (uiLevel >= pSegmentedShape->GetNumSegments())
+                            continue;
+
+                        if (bIsLoaded && !pSegmentedShape->IsSegmentEmpty(uiLevel) && pCell->bCanHideLOD)
+                            pSegmentedShape->DisableSegment(uiLevel);
+                        else
+                            pSegmentedShape->EnableSegment(uiLevel);
                     }
                 }
-                for (UInt32 uiObject = 0; uiObject < pMultiBoundNode->GetChildCount(); uiObject++) {
-                    NiAVObject* pChild = pMultiBoundNode->GetAt(uiObject);
-                    if (!pChild)
+            }
+
+            // Update visibility of all children regardless of LOD level
+            for (UInt32 uiObject = 0; uiObject < pBlock->GetArrayCount(); uiObject++) {
+                NiAVObject* pChild = pBlock->GetAt(uiObject);
+                if (!pChild)
+                    continue;
+
+                if (IS_SEGMENTEDTRISHAPE(pChild)) {
+                    pSegmentedShape = static_cast<BSSegmentedTriShape*>(pChild);
+                    pSegmentedShape->UpdateDrawData();
+                }
+                else if (!pChild->GetIgnoreFade()) {
+                    NiPoint3 kPos = pChild->m_kWorld.m_Translate;
+                    TESObjectCELL* pCell = pWorldspace->GetCellAtCoord(int(kPos.x) >> 12, int(kPos.y) >> 12);
+                    if (!pCell)
                         continue;
 
-                    if (pChild->IsSegmentedTriShape()) {
-                        pSegmentedTriShape = static_cast<BSSegmentedTriShape*>(pChild);
-                        pSegmentedTriShape->UpdateDrawData();
-                    }
-                    else if (!pChild->GetIgnoreFade()) {
-                        NiPoint3 kPos = pChild->m_kWorld.m_Translate;
-                        TESObjectCELL* pCell = pWorldspace->GetCellAtCoord(int(kPos.x) >> 12, int(kPos.y) >> 12);
-                        if (pCell) {
-                            bool bIsLoaded = TES::IsCellLoaded(pCell, true);
-                            pChild->SetAppCulled(bIsLoaded);
-                            pChild->Update(NiUpdateData::kDefaultUpdateData);
-                        }
-                    }
+                    bool bIsLoaded = TES::IsCellLoaded(pCell, true);
+                    pChild->SetAppCulled(bIsLoaded);
+                    pChild->Update(NiUpdateData::kDefaultUpdateData);
                 }
             }
-            else {
-                for (UInt32 uiObject = 0; uiObject < pMultiBoundNode->GetChildCount(); uiObject++) {
-                    NiAVObject* pChild = pMultiBoundNode->GetAt(uiObject);
-                    if (pChild->IsSegmentedTriShape())
-                        static_cast<BSSegmentedTriShape*>(pChild)->EnableAllSegments();
-                    else
-                        pChild->SetAppCulled(false);
-                }
-            }
-        }
-    }
-    if (pObjectBlock && pObjectBlock->GetMultiBound(true)) {
-        if (IsPlayerInRange()) {
-            ThisStdCall(0x6F5970, pObjectBlock, pObjectBlock->GetMultiBound(true), uiLODLevel, GetCellX(), GetCellY());
         }
         else {
-            pObjectBlock->ShowRecurse(pObjectBlock->GetMultiBound(true));
+            for (UInt32 uiObject = 0; uiObject < pBlock->GetArrayCount(); uiObject++) {
+                NiAVObject* pChild = pBlock->GetAt(uiObject);
+                if (!pChild)
+                    continue;
+
+                if (IS_SEGMENTEDTRISHAPE(pChild))
+                    static_cast<BSSegmentedTriShape*>(pChild)->EnableAllSegments();
+                else
+                    pChild->SetAppCulled(false);
+            }
         }
     }
+
+    BSMultiBoundNode* pStingerBound = pObjectBlock->GetBlock(true);
+    if (!pStingerBound)
+        return;
+
+    if (IsPlayerInRange())
+        pObjectBlock->ToggleVisibilityRecurse(pStingerBound, uiLODLevel, GetCellX(), GetCellY());
+    else
+        pObjectBlock->ShowRecurse(pStingerBound);
 }
 
 #if TREELOD
@@ -296,7 +302,7 @@ static void SetWaterMultiBoundHeight(NiGeometry* apWaterMesh) {
     }
 
     NiNode* pParent = apWaterMesh->GetParent();
-    if (!pParent || !pParent->IsMultiBoundNode()) {
+    if (!pParent || !IS_MULTIBOUNDNODE(pParent)) {
         DEBUG_MSG("[ SetWaterMultiBoundHeight ] Water mesh parent is null or not a multi bound node!");
         return;
     }
@@ -346,13 +352,13 @@ namespace WaterReflectionFix {
         if (!apObject)
             return;
 
-        if (apObject->IsNiNode()) {
-            NiNode* pNode = (NiNode*)apObject;
+        if (IS_NODE(apObject)) {
+            NiNode* pNode = static_cast<NiNode*>(apObject);
             for (UInt32 i = 0; i < pNode->GetArrayCount(); i++)
                 ToggleLODRecurse(pNode->GetAt(i), abIgnore);
         }
-        else if (apObject->IsSegmentedTriShape()) {
-            BSSegmentedTriShape* pSegTriShape = (BSSegmentedTriShape*)apObject;
+        else if (IS_SEGMENTEDTRISHAPE(apObject)) {
+            BSSegmentedTriShape* pSegTriShape = static_cast<BSSegmentedTriShape*>(apObject);
             pSegTriShape->bIgnoreSegments = abIgnore;
             if (abIgnore) {
                 if (!pSegTriShape->pSegments[0].bVisible)
@@ -390,16 +396,22 @@ namespace WaterReflectionFix {
 }
 
 static void UpdateLODAnimations() {
+	if (kAnimatedLODObjects.empty())
+		return;
+
     std::stack<NiPointer<NiAVObject>> kRemoveStack;
     NiUpdateData kUpdateData = NiUpdateData(*(float*)0x11C3C08, true);
     for (NiAVObject* pObject : kAnimatedLODObjects) {
-        if (pObject) {
-            if (pObject->m_uiRefCount > 2)
-                pObject->UpdateControllers(kUpdateData);
-            else {
-                DEBUG_MSG("Object %x ref count %i, adding to the removal list", pObject, pObject->m_uiRefCount);
-                kRemoveStack.push(pObject);
-            }
+        if (!pObject) {
+			DEBUG_MSG("Object is null, removing from animated list");
+            continue;
+        }
+
+        if (pObject->m_uiRefCount > 2)
+            pObject->UpdateControllers(kUpdateData);
+        else {
+            DEBUG_MSG("Object %x ref count %i, adding to the removal list", pObject, pObject->m_uiRefCount);
+            kRemoveStack.push(pObject);
         }
     }
 
@@ -424,15 +436,20 @@ static void UpdateLOD() {
         return;
 
     DEBUG_MSG("Force Updating LOD");
-    NiPoint3* pPlayerPos = PlayerCharacter::GetSingleton()->GetPos();
-    pTerrainManager->Update(pPlayerPos, 0xF);
+	PlayerCharacter* pPlayer = PlayerCharacter::GetSingleton();
+    if (TESMain::GetSingleton()->bIsFlyCam)
+        pTerrainManager->Update(&pPlayer->kFlycamPos.kPosition, 0xF);
+    else 
+        pTerrainManager->Update(pPlayer->GetPos(), 0xF);
 }
 
 static void MessageHandler(NVSEMessagingInterface::Message* msg) {
     switch (msg->type) {
     case NVSEMessagingInterface::kMessage_MainGameLoop:
-        UpdateLODAnimations();
-        UpdateLOD();
+        if (!TESMain::GetSingleton()->bFreezeTime) {
+            UpdateLODAnimations();
+            UpdateLOD();
+        }
         break;
     default:
         break;
@@ -451,6 +468,9 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
 
 		ReplaceCallEx(0x6FB0FB, &BGSTerrainChunk::InitializeShaderProperty);
         ReplaceCallEx(0x6F6011, &BGSDistantObjectBlock::Prepare);
+
+		ReplaceCallEx(0x6F696E, &BGSTerrainNode::UpdateBlockVisibility);
+		ReplaceCallEx(0x6F6C73, &BGSTerrainNode::UpdateBlockVisibility);
 		ReplaceCallEx(0x6FE0F5, &BGSTerrainNode::UpdateBlockVisibility);
 
         // Fix object LOD not reflecting in water

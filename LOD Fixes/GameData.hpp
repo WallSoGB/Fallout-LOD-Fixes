@@ -7,6 +7,26 @@
 #define ASSERT_OFFSET(a, b, c) static_assert(offsetof(a, b) == c, "Wrong member offset!");
 #define CREATE_OBJECT(CLASS, ADDRESS) static CLASS* CreateObject() { return StdCall<CLASS*>(ADDRESS); };
 
+// JIP macros to check types without virtual funcs
+#define IS_NODE(object) ((*(UInt32**)object)[3 * 4 >> 2] == 0x6815C0)
+#define IS_FADENODE(object) ((*(UInt32**)object)[4 * 4 >> 2] == 0x6815C0)
+#define IS_MULTIBOUNDNODE(object) ((*(UInt32**)object)[5 * 4 >> 2] == 0x6815C0)
+#define IS_GEOMETRY(object) ((*(UInt32**)object)[6 * 4 >> 2] == 0xE68810)
+#define IS_TRIGEOMETRY(object) ((*(UInt32**)object)[7 * 4 >> 2] == 0xE68810)
+#define IS_TRISTRIPS(object) ((*(UInt32**)object)[8 * 4 >> 2] == 0xE68810)
+#define IS_TRISHAPE(object) ((*(UInt32**)object)[9 * 4 >> 2] == 0xE68810)
+#define IS_SEGMENTEDTRISHAPE(object) ((*(UInt32**)object)[10 * 4 >> 2] == 0xE68810)
+#define IS_RESIZABLETRISHAPE(object) ((*(UInt32**)object)[11 * 4 >> 2] == 0xE68810)
+#define IS_PARTICLE(object) ((*(UInt32**)object)[12 * 4 >> 2] == 0xE68810)
+#define IS_LINE(object) ((*(UInt32**)object)[13 * 4 >> 2] == 0xE68810)
+#define IS_NICOLLISION(object) ((*(UInt32**)object)[14 * 4 >> 2] == 0x6815C0)
+#define IS_BLENDCOLLISION(object) ((*(UInt32**)object)[15 * 4 >> 2] == 0xE68810)
+#define IS_RIGIDBODY(object) ((*(UInt32**)object)[16 * 4 >> 2] == 0x6815C0)
+#define IS_HINGECONSTRAINT(object) ((*(UInt32**)object)[17 * 4 >> 2] == 0xE68810)
+#define IS_CONTROLLERMANAGER(object) ((*(UInt32**)object)[34 * 4 >> 2] == 0xE68810)
+
+#define IS_PACKED(object) ((*(UInt32**)object)[35 * 4 >> 2] == 0x8D0360)
+
 class BGSDistantObjectBlock;
 class bhkBlendCollisionObject;
 class bhkCollisionObject;
@@ -737,7 +757,7 @@ public:
 		if (bHasControllers)
 			return true;
 
-		if (apObject->IsNiNode()) {
+		if (IS_NODE(apObject)) {
 			const NiNode* pNode = static_cast<const NiNode*>(apObject);
 			for (UInt32 i = 0; i < pNode->GetArrayCount(); i++) {
 				NiAVObject* pChild = pNode->GetAt(i);
@@ -1091,56 +1111,56 @@ public:
 class NiGeometryData : public NiObject {
 public:
 	enum Consistency {
-		MUTABLE = 0x0000,
-		STATIC = 0x4000,
-		VOLATILE = 0x8000,
-		CONSISTENCY_MASK = 0xF000,
+		MUTABLE				= 0x0000,
+		STATIC				= 0x4000,
+		CONSISTENCY_MASK	= 0x7000,
 	};
 
 	enum KeepFlags {
-		KEEP_NONE = 0x0,
-		KEEP_XYZ = 0x1,
-		KEEP_NORM = 0x2,
-		KEEP_COLOR = 0x4,
-		KEEP_UV = 0x8,
-		KEEP_INDICES = 0x10,
-		KEEP_BONEDATA = 0x20,
-		KEEP_ALL = 0x3F,
+		KEEP_NONE		= 0,
+		KEEP_XYZ		= 1 << 0,
+		KEEP_NORM		= 1 << 1,
+		KEEP_COLOR		= 1 << 2,
+		KEEP_UV			= 1 << 3,
+		KEEP_INDICES	= 1 << 4,
+		KEEP_BONEDATA	= 1 << 5,
+		KEEP_ALL		= 0x3F,
 	};
 
 	enum Compression {
-		COMPRESS_NORM = 0x1,
-		COMPRESS_COLOR = 0x2,
-		COMPRESS_UV = 0x4,
-		COMPRESS_WEIGHT = 0x8,
-		COMPRESS_POSITION = 0x10,
-		COMPRESS_ALL = 0x1F,
+		COMPRESS_NORM		= 1 << 0,
+		COMPRESS_COLOR		= 1 << 1,
+		COMPRESS_UV			= 1 << 2,
+		COMPRESS_WEIGHT		= 1 << 3,
+		COMPRESS_POSITION	= 1 << 4,
+		COMPRESS_ALL		= 0x1F,
 	};
 
 	enum MarkAsChangedFlags {
-		VERTEX_MASK = 0x1,
-		NORMAL_MASK = 0x2,
-		COLOR_MASK = 0x4,
-		TEXTURE_MASK = 0x8,
-		DIRTY_MASK = 0xFFF,
+		VERTEX_MASK		= 1 << 0,
+		NORMAL_MASK		= 1 << 1,
+		COLOR_MASK		= 1 << 2,
+		TEXTURE_MASK	= 1 << 3,
+		ALL_MASK		= VERTEX_MASK | NORMAL_MASK | COLOR_MASK | TEXTURE_MASK,
+		DIRTY_MASK		= 0xFFF,
 	};
 
-	UInt16						m_usVertices;
-	UInt16						m_usID;
-	UInt16						m_usDataFlags;
-	UInt16						m_usDirtyFlags;
-	NiBound						m_kBound;
-	NiPoint3*					m_pkVertex;
-	NiPoint3*					m_pkNormal;
-	NiColorA*					m_pkColor;
-	NiPoint2*					m_pkTexture;
-	NiAdditionalGeometryData*	m_spAdditionalGeomData;
-	NiGeometryBufferData*		m_pkBuffData;
-	UInt8						m_ucKeepFlags;
-	UInt8						m_ucCompressFlags;
-	UInt8						Unk3A;
-	UInt8						Unk3B;
-	bool						m_bCanSave;
+	UInt16								m_usVertices;
+	UInt16								m_usID;
+	UInt16								m_usDataFlags;
+	UInt16								m_usDirtyFlags;
+	NiBound								m_kBound;
+	NiPoint3*							m_pkVertex;
+	NiPoint3*							m_pkNormal;
+	NiColorA*							m_pkColor;
+	NiPoint2*							m_pkTexture;
+	NiPointer<NiAdditionalGeometryData>	m_spAdditionalGeomData;
+	NiGeometryBufferData*				m_pkBuffData;
+	UInt8								m_ucKeepFlags;
+	UInt8								m_ucCompressFlags;
+	bool								bIsReadingData;
+	bool								bUnk3B;
+	bool								bCanSave;
 
 	__forceinline void SetKeepFlags(KeepFlags aeFlags) {
 		m_ucKeepFlags = aeFlags;
@@ -1151,7 +1171,8 @@ public:
 	}
 
 	__forceinline void SetConsistency(Consistency aeFlags) {
-		ThisStdCall(0xA67050, this, aeFlags);
+		if (!m_spAdditionalGeomData.m_pObject || !IS_PACKED(m_spAdditionalGeomData.m_pObject))
+			m_usDirtyFlags = (m_usDirtyFlags & ~CONSISTENCY_MASK) | aeFlags;
 	}
 
 	__forceinline NiPoint3* GetVertices() const {
@@ -1392,7 +1413,7 @@ public:
 	bool				byte2B;
 	BSSimpleArray<TESObjectREFR*> kTreeRefs; // 0x2C
 
-	void Update(NiPoint3* apPos, UInt32 aeUpdateType) {
+	void Update(const NiPoint3* apPos, UInt32 aeUpdateType) {
 		ThisStdCall(0x6FCA90, this, apPos, aeUpdateType);
 	}
 
@@ -1473,31 +1494,39 @@ public:
 class BGSDistantObjectBlock {
 public:
 	BGSTerrainNode*					pTerrainNode;
-	NiPointer<BSSegmentedTriShape>	spSegmentedTriShape;
-	NiPointer<BSMultiBoundNode>		spMultiboundNode;
-    void*							spNode0C; // old ones?
-	NiPointer<BSMultiBoundNode>		spNode10;
-    void*							spNode14;
-    void*							spDistantObjectBlockLoadTask;
-    void*							spTask2;
-    bool							byte20;
+	NiPointer<BSSegmentedTriShape>	spShape;
+	NiPointer<BSMultiBoundNode>		spBlock;
+	NiPointer<BSSegmentedTriShape>	spPreviousShape;
+	NiPointer<BSMultiBoundNode>		spStingerBlock;
+	NiPointer<BSMultiBoundNode>		spPreviousBlock;
+    void*							spLoadTask;
+    void*							spStingerLoadTask;
+    bool							bSwapBlocks;
     bool							bIsAddedToDistantBlocksList;
     bool							bPrepared;
     bool							bIsHigh;
     UInt8							byte24;
     UInt32							unk28;
 
-	BSMultiBoundNode* GetMultiBound(bool abUnk) const {
-		if (abUnk)
-			return spNode10;
+	BSMultiBoundNode* GetBlock(const bool abStinger) const {
+		if (abStinger)
+			return spStingerBlock.m_pObject;
 		else
-			return spMultiboundNode;
+			return spBlock.m_pObject;
 	}
 
 	void Prepare();
 
+	void PrepareStinger(NiAVObject* apObject) {
+		ThisStdCall(0x6F6A90, this, apObject);
+	}
+
 	void ShowRecurse(NiNode* apNode) const {
 		ThisStdCall(0x6F5A70, this, apNode);
+	}
+
+	void ToggleVisibilityRecurse(NiNode* apNode, UInt32 auiLODLevel, SInt16 asCellX, SInt16 asCellY) const {
+		ThisStdCall(0x6F5970, this, apNode, auiLODLevel, asCellX, asCellY);
 	}
 };
 
@@ -1659,10 +1688,15 @@ public:
 
 class TESObjectREFR : public TESForm {
 public:
+	UInt32 padding[0x28 / 4];
+	TESObjectCELL* pParentCell;
+
 	NiPoint3* GetPos() const {
 		return ThisStdCall<NiPoint3*>(0x436AA0, this);
 	}
 };
+
+ASSERT_OFFSET(TESObjectREFR, pParentCell, 0x40);
 
 class Actor : public TESObjectREFR {
 public:
@@ -1673,8 +1707,14 @@ public:
 
 class PlayerCharacter : public Actor {
 public:
-	UInt32 padding[0x40 / 4];
-	TESObjectCELL* pParentCell;
+	struct FlyCamData {
+		float		fRotX;
+		float		fRotZ;
+		NiPoint3	kPosition;
+	};
+
+	UInt32		padding2[0x79C / 4];
+	FlyCamData	kFlycamPos;
 
 	static PlayerCharacter* GetSingleton() {
 		return *(PlayerCharacter**)0x11DEA3C;
@@ -1683,4 +1723,20 @@ public:
 	TESObjectCELL* GetParentCell() const {
 		return pParentCell;
 	}
+};
+
+ASSERT_OFFSET(PlayerCharacter, kFlycamPos, 0x7E0);
+
+class TESMain {
+public:
+	bool					bOneMore;
+	bool					bQuitGame;
+	bool					bExitToMainMenu;
+	bool					bGameActive;
+	bool					unk04;
+	bool					unk05;
+	bool					bIsFlyCam;
+	bool					bFreezeTime;
+
+	static __forceinline TESMain* GetSingleton() { return *(TESMain**)0x11DEA0C; };
 };
