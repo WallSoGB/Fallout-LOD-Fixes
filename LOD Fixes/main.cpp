@@ -20,11 +20,12 @@ IDebugLog	   gLog("logs\\LOD Fixes.log");
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info) {
 	info->infoVersion   = PluginInfo::kInfoVersion;
 	info->name          = "LOD Fixes";
-    info->version       = 131;
+    info->version       = 132;
 	return !nvse->isEditor;
 }
 
 static bool bUseSpecular = false;
+static bool bAllowForceUpdates = true;
 static bool bTreeLODPatches = false;
 static UInt32 uiSpecularShine = 65;
 
@@ -346,6 +347,21 @@ void BGSTerrainChunk::InitializeShaderProperty() {
         pShaderProp->SetFlag(BSShaderProperty::BSSP_SPECULAR, false);
 }
 
+void TESObjectCELL::AddReference(TESObjectREFR* apRef, bool abOnTop) {
+	// Fix for imposter references being... detached from the cell after being... attached to the cell.
+    // This leads to them not being updated, as they are gone from cell's list of animated references. Genius.
+    // Imposters are always attached to the *current* cell player is in (whose update always happens first), so we can safely ignore calls coming from ::AssignPersistentRefsToCell afterwards
+    if (apRef) {
+        NiNode* pRoot = apRef->Get3D();
+        if (pRoot && pRoot->GetParent() && apRef->IsImposter()) {
+            DEBUG_MSG("[ TESObjectCELL::AddReference ] Ignoring imposter reference %08X - Already attached by the player", apRef->uiFormID);
+            return;
+        }
+    }
+
+    ThisStdCall(0x548230, this, apRef, abOnTop);
+}
+
 namespace WaterReflectionFix {
     static bool* const bForceHighDetailReflections = (bool*)0x11C7C04;
     static float fOrgLODDrop = 0.f;
@@ -427,6 +443,9 @@ static void UpdateLODAnimations() {
 }
 
 static void UpdateLOD() {
+	if (!bAllowForceUpdates)
+		return;
+
     auto pWorld = TES::GetWorldSpace();
     if (!pWorld)
         return;
@@ -468,6 +487,7 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
         strcpy((char*)(strrchr(iniDir, '\\') + 1), "Data\\NVSE\\Plugins\\LOD Fixes.ini");
         bUseSpecular = GetPrivateProfileInt("Main", "bUseSpecular", 0, iniDir);
         uiSpecularShine = GetPrivateProfileInt("Main", "uiSpecularShine", 65, iniDir);
+		bAllowForceUpdates = GetPrivateProfileInt("Main", "bAllowForceUpdates", 1, iniDir);
 
 		ReplaceCallEx(0x6FB0FB, &BGSTerrainChunk::InitializeShaderProperty);
         ReplaceCallEx(0x6F6011, &BGSDistantObjectBlock::Prepare);
@@ -475,6 +495,10 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		ReplaceCallEx(0x6F696E, &BGSTerrainNode::UpdateBlockVisibility);
 		ReplaceCallEx(0x6F6C73, &BGSTerrainNode::UpdateBlockVisibility);
 		ReplaceCallEx(0x6FE0F5, &BGSTerrainNode::UpdateBlockVisibility);
+
+        // Fix imposters failing to animate
+        // Only one specific call to AddReference is the offender here
+        ReplaceCallEx(0x5881D1, &TESObjectCELL::AddReference);
 
         // Fix object LOD not reflecting in water
         ReplaceCall(0x4EB6C6, WaterReflectionFix::ShowLOD);

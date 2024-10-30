@@ -1571,6 +1571,8 @@ public:
 	bool IsAttached() const {
 		return ucCellState == CS_ATTACHED;
 	}
+
+	void AddReference(TESObjectREFR* apRef, bool abOnTop);
 };
 
 class TESWorldSpace {
@@ -1693,6 +1695,15 @@ public:
 
 	NiPoint3* GetPos() const {
 		return ThisStdCall<NiPoint3*>(0x436AA0, this);
+	}
+
+	bool IsImposter() const {
+		return ThisStdCall<bool>(0x564F00, this);
+	}
+
+	// Normally it's virtual
+	NiNode* Get3D() const {
+		return ThisStdCall<NiNode*>(0x43FCD0, this);
 	}
 };
 
