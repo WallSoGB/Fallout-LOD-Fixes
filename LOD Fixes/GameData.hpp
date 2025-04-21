@@ -95,8 +95,6 @@ public:
 	bool byte6;
 	bool bUpdateGeomorphs;
 	bool bUpdateShadowSceneNode;
-
-	static NiUpdateData kDefaultUpdateData;
 };
 
 class NiMatrix3 {

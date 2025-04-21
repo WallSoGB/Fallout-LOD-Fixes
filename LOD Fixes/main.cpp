@@ -9,7 +9,6 @@ NVSEInterface* g_nvseInterface{};
 IDebugLog	   gLog("logs\\LOD Fixes.log");
 
 #define LOGGING 0
-#define TREELOD 0
 
 #if LOGGING
 #define DEBUG_MSG(...) _MESSAGE(__VA_ARGS__)
@@ -20,16 +19,14 @@ IDebugLog	   gLog("logs\\LOD Fixes.log");
 bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* info) {
 	info->infoVersion   = PluginInfo::kInfoVersion;
 	info->name          = "LOD Fixes";
-    info->version       = 132;
+    info->version       = 133;
 	return !nvse->isEditor;
 }
 
 static bool bUseSpecular = false;
+static bool bUseFullShader = false;
 static bool bAllowForceUpdates = true;
-static bool bTreeLODPatches = false;
 static UInt32 uiSpecularShine = 65;
-
-NiUpdateData NiUpdateData::kDefaultUpdateData = NiUpdateData();
 
 std::vector<NiPointer<NiAVObject>> kAnimatedLODObjects;
 
@@ -38,12 +35,12 @@ void BGSDistantObjectBlock::Prepare() {
     bool bUseStinger = !bPrepared || spStingerBlock && spPreviousBlock && spStingerBlock != spPreviousBlock;
 
     NiDX9Renderer* pRenderer = NiDX9Renderer::GetSingleton();
-    if (bUseNormalLOD && spShape.m_pObject) {
+    if (bUseNormalLOD && spShape) [[likely]] {
         UInt32 uiChildCount = spBlock->GetChildCount();
 
-        for (UInt32 i = 0; i < uiChildCount; i++) {
+        for (UInt32 i = 0; i < uiChildCount; i++) [[likely]] {
             NiAVObject* pChild = spBlock->GetAt(i);
-            if (IS_SEGMENTEDTRISHAPE(pChild)) {
+            if (IS_SEGMENTEDTRISHAPE(pChild)) [[likely]] {
                 BSSegmentedTriShape* pShape = static_cast<BSSegmentedTriShape*>(pChild);
                 pShape->RemoveProperty(NiProperty::ALPHA);
 
@@ -57,15 +54,19 @@ void BGSDistantObjectBlock::Prepare() {
                 pShape->AddProperty(pAlphaProp);
 
                 if (bUseSpecular) {
-                    static NiPointer<NiMaterialProperty> spDefaultMaterial = NiMaterialProperty::CreateObject();
-                    spDefaultMaterial->m_fShine = uiSpecularShine;
-                    pShape->AddProperty(spDefaultMaterial);
+                    NiMaterialProperty* pMatProp = static_cast<NiMaterialProperty*>(pShape->GetProperty(NiProperty::MATERIAL));
+                    if (!pMatProp) {
+                        static NiPointer<NiMaterialProperty> spDefaultMaterial = NiMaterialProperty::CreateObject();
+                        spDefaultMaterial->m_fShine = uiSpecularShine;
+                        pShape->AddProperty(spDefaultMaterial);
+                    }
                 }
 
                 BSShaderProperty* pShaderProp = static_cast<BSShaderProperty*>(pShape->GetProperty(NiProperty::SHADE));
                 pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_BUILDING, true);
                 pShaderProp->SetFlag(BSShaderProperty::BSSP_LOD_LANDSCAPE, false);
                 pShaderProp->SetFlag(BSShaderProperty::BSSP_SPECULAR, bUseSpecular); // vanilla is false
+                pShaderProp->SetFlag(BSShaderProperty::BSSP_STINGER_PROP, bUseFullShader); // Obsidian-made flag for their unused LOD system. Disables distance checks for specular
                 BSShaderProperty* p30ShaderProp = pShaderProp->PickShader(pShape, 0, 1);
                 if (p30ShaderProp) {
                     pShape->RemoveProperty(NiProperty::SHADE);
@@ -75,7 +76,8 @@ void BGSDistantObjectBlock::Prepare() {
                 BSShader* pShader = BSShaderManager::GetShader(pShaderProp->uiShaderIndex);
                 pShape->m_pShader = pShader;
                 pShape->UpdatePropertiesUpward();
-                pShape->Update(NiUpdateData::kDefaultUpdateData);
+                NiUpdateData kData;
+                pShape->Update(kData);
                 pShape->SetFixedBound(true);
 
                 pTerrainNode->UpdateBlockVisibility(false);
@@ -87,18 +89,19 @@ void BGSDistantObjectBlock::Prepare() {
                 pRenderer->PrecacheGeometry(pShape, 0, 0, pShader->GetShaderDeclaration(pShape, pShaderProp));
                 pRenderer->PerformPrecache();
             }
-            else if (IS_NODE(pChild)) {
+            else if (IS_NODE(pChild)) [[unlikely]] {
                 NiNode* pNode = static_cast<NiNode*>(pChild);
                 pNode->SetAppCulled(false);
                 CdeclCall(0x4B5D10, pNode); // Remove debug markers
                 pNode->CreateWorldBoundIfMissing();
                 pNode->UpdatePropertiesUpward();
-                pNode->Update(NiUpdateData::kDefaultUpdateData);
+                NiUpdateData kData;
+                pNode->Update(kData);
                 BSShaderManager::AssignShaders(pNode, false, false);
             }
         }
 
-        if (NiNode::HasControllers(spBlock)) {
+        if (NiNode::HasControllers(spBlock)) [[unlikely]] {
             CdeclCall(0xA6D2D0, spBlock); // Start animations
             DEBUG_MSG("Adding animated object %x, ref count %i + 1", spBlock, spBlock->m_uiRefCount);
             kAnimatedLODObjects.push_back(spBlock.m_pObject);
@@ -108,8 +111,8 @@ void BGSDistantObjectBlock::Prepare() {
         bPrepared = true;
     }
 
-    if (bUseStinger && spStingerBlock.m_pObject) {
-        PrepareStinger(spStingerBlock.m_pObject);
+    if (bUseStinger && spStingerBlock) [[unlikely]] {
+        PrepareStinger(spStingerBlock);
         pRenderer->PerformPrecache();
         bPrepared = true;
     }
@@ -122,7 +125,7 @@ void BGSTerrainNode::UpdateBlockVisibility(bool) {
         return;
 
     BSSegmentedTriShape* pSegmentedShape = pObjectBlock->spShape;
-    if (pSegmentedShape) {
+    if (pSegmentedShape) [[likely]] {
         BSMultiBoundNode* pBlock = pObjectBlock->GetBlock(false);
         if (IsPlayerInRange()) {
             for (SInt32 x = 0; x < uiLODLevel; ++x) {
@@ -134,7 +137,7 @@ void BGSTerrainNode::UpdateBlockVisibility(bool) {
 
                     for (UInt32 uiObject = 0; uiObject < pBlock->GetArrayCount(); uiObject++) {
                         NiAVObject* pChild = pBlock->GetAt(uiObject);
-                        if (!pChild || !IS_SEGMENTEDTRISHAPE(pChild))
+						if (!pChild || !IS_SEGMENTEDTRISHAPE(pChild)) [[unlikely]]
                             continue;
 
                         // Intentional overwrite - spShape is a child of the multibound node
@@ -157,7 +160,7 @@ void BGSTerrainNode::UpdateBlockVisibility(bool) {
                 if (!pChild)
                     continue;
 
-                if (IS_SEGMENTEDTRISHAPE(pChild)) {
+                if (IS_SEGMENTEDTRISHAPE(pChild)) [[likely]] {
                     pSegmentedShape = static_cast<BSSegmentedTriShape*>(pChild);
                     pSegmentedShape->UpdateDrawData();
                 }
@@ -169,17 +172,18 @@ void BGSTerrainNode::UpdateBlockVisibility(bool) {
 
                     bool bIsLoaded = TES::IsCellLoaded(pCell, true);
                     pChild->SetAppCulled(bIsLoaded);
-                    pChild->Update(NiUpdateData::kDefaultUpdateData);
+                    NiUpdateData kData;
+                    pChild->Update(kData);
                 }
             }
         }
         else {
             for (UInt32 uiObject = 0; uiObject < pBlock->GetArrayCount(); uiObject++) {
                 NiAVObject* pChild = pBlock->GetAt(uiObject);
-                if (!pChild)
+                if (!pChild) [[unlikely]]
                     continue;
 
-                if (IS_SEGMENTEDTRISHAPE(pChild))
+                if (IS_SEGMENTEDTRISHAPE(pChild)) [[likely]]
                     static_cast<BSSegmentedTriShape*>(pChild)->EnableAllSegments();
                 else
                     pChild->SetAppCulled(false);
@@ -188,7 +192,7 @@ void BGSTerrainNode::UpdateBlockVisibility(bool) {
     }
 
     BSMultiBoundNode* pStingerBound = pObjectBlock->GetBlock(true);
-    if (!pStingerBound)
+    if (!pStingerBound) [[likely]]
         return;
 
     if (IsPlayerInRange())
@@ -196,104 +200,6 @@ void BGSTerrainNode::UpdateBlockVisibility(bool) {
     else
         pObjectBlock->ShowRecurse(pStingerBound);
 }
-
-#if TREELOD
-static UInt32 GetRelativeFormID(UInt32 auiFormID) {
-    return auiFormID & 0xFFFFFF;
-}
-
-static UInt32 GetLODFormID(UInt32 auiFormID) {
-    UInt32 uiRelativeFormID = GetRelativeFormID(auiFormID);
-    return uiRelativeFormID | (1u << 24);
-}
-
-void __fastcall BGSDistantTreeBlock::HideLOD(BGSDistantTreeBlock* apThis, void*, UInt32 aID, bool abRegisterFormID) {
-    BGSDistantTreeBlock::InstanceData* pInstance = nullptr;
-    UInt32 uiUsedFormID = aID;
-    bool bTreeFound = false;
-
-    DEBUG_MSG("\n===== Hiding trees =====");
-    if (apThis->kInstanceMap.m_uiCount == 0) {
-        DEBUG_MSG("Instance map is empty!");
-    }
-    else {
-        bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
-		if (!bTreeFound) {
-			DEBUG_MSG("Tree %08X not found - trying LOD FormID", aID);
-			uiUsedFormID = GetLODFormID(aID);
-			bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
-		}
-
-		if (!bTreeFound) {
-			DEBUG_MSG("Tree %08X not found - trying relative FormID", aID);
-			uiUsedFormID = GetRelativeFormID(aID);
-			bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
-		}
-
-        if (!bTreeFound) {
-            DEBUG_MSG("Tree %08X not found - trying relative LOD FormID", aID);
-            uiUsedFormID = GetLODFormID(uiUsedFormID);
-            bTreeFound = apThis->kInstanceMap.GetAt(uiUsedFormID, pInstance);
-        }
-#if LOGGING
-		if (!bTreeFound) {
-			DEBUG_MSG("Tree %08X not found - giving up. Tree LOD for this reference does not exist, despite it having the tree LOD flag.", aID);
-		}
-#endif
-    }
-
-    if (bTreeFound) {
-        DEBUG_MSG("Hiding LOD for tree %08X", aID);
-        pInstance->bHidden = true;
-        (*apThis->kTreeGroups.GetAt(pInstance->uiTreeGroupIndex))->bShaderPropertyUpToDate = false;
-    }
-    else if (abRegisterFormID) {
-        DEBUG_MSG("Tree %08X not found - adding FormID to array", aID);
-        ThisStdCall(0x7CB2E0, &apThis->kFormIDs, &aID); // Append
-    }
-    else {
-        DEBUG_MSG("Tree %08X not found", aID);
-    }
-}
-
-static void __fastcall BSMap__SetAt(void* apThis, void*, UInt32 auiFormID, BGSDistantTreeBlock::InstanceData* apInstanceData) {
-    UInt32 uiFormID = auiFormID;
-    UInt32 uiIndex = uiFormID >> 24;
-    if (uiIndex > 1)
-        uiFormID = GetLODFormID(auiFormID);
-
-#if LOGGING
-    if (auiFormID == uiFormID)
-        DEBUG_MSG("\n ===== Registering tree %08X at %f, %f, %f =====", auiFormID, apInstanceData->kPos.x, apInstanceData->kPos.y, apInstanceData->kPos.z);
-    else
-        DEBUG_MSG("\n ===== Registering corrected tree %08X (was %08X) at %f, %f, %f =====", uiFormID, auiFormID, apInstanceData->kPos.x, apInstanceData->kPos.y, apInstanceData->kPos.z);
-#endif
-    ThisStdCall(0x6F9A80, apThis, uiFormID, apInstanceData);
-}
-
-
-#if LOGGING
-static void __fastcall BGSDistantTreeBlockLoadTask__Run(void* apThis) {
-    DEBUG_MSG("\n===== Loading trees =====");
-    ThisStdCall(0x6F9570, apThis);
-}
-
-static BGSDistantTreeBlock* __fastcall BGSDistantTreeBlock__BGSDistantTreeBlock(BGSDistantTreeBlock* apThis, void*, BGSTerrainNode* apNode, int lodLevel, __int16 x, __int16 y) {
-    DEBUG_MSG("\n===== Creating BGSDistantTreeBlock =====");
-    return ThisStdCall<BGSDistantTreeBlock*>(0x6F7540, apThis, apNode, lodLevel, x, y);
-}
-
-static TESFile* __fastcall GetFile(TESForm* apThis, void*, SInt32 i) {
-    TESFile* pFile = apThis->GetFile(i);
-	DEBUG_MSG("\nGetting file %i for form %08X: \"%s\"", i, apThis->uiFormID, pFile ? pFile->cFilename : "null");
-	bool bHasMasters = pFile && pFile->HasMasters();
-	DEBUG_MSG("File has masters: %s", bHasMasters ? "true" : "false");
-    UInt32 uiFormID = GetRelativeFormID(apThis->uiFormID) | (bHasMasters << 24);
-	DEBUG_MSG("LOD Form ID: %08X", uiFormID);
-	return pFile;
-}
-#endif
-#endif
 
 static void SetWaterMultiBoundHeight(NiGeometry* apWaterMesh) {
     if (!apWaterMesh)
@@ -388,7 +294,7 @@ namespace WaterReflectionFix {
         }
     }
 
-    static void __stdcall ShowLOD() {
+    static void ShowLOD() {
         if (*bForceHighDetailReflections)
             return;
 
@@ -399,7 +305,7 @@ namespace WaterReflectionFix {
 
     }
 
-    static void __stdcall HideLOD() {
+    static void HideLOD() {
         if (*bForceHighDetailReflections)
             return;
 
@@ -454,7 +360,7 @@ static void UpdateLOD() {
 	if (!pTerrainManager)
 		return;
 
-    if (pTerrainManager->bNeedsImmediateUpdate == false)
+    if (!pTerrainManager->bNeedsImmediateUpdate)
         return;
 
     DEBUG_MSG("Force Updating LOD");
@@ -482,12 +388,13 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	if (!nvse->isEditor) {
         ((NVSEMessagingInterface*)nvse->QueryInterface(kInterface_Messaging))->RegisterListener(nvse->GetPluginHandle(), "NVSE", MessageHandler);
 
-        char iniDir[MAX_PATH];
-        GetModuleFileNameA(GetModuleHandle(NULL), iniDir, MAX_PATH);
-        strcpy((char*)(strrchr(iniDir, '\\') + 1), "Data\\NVSE\\Plugins\\LOD Fixes.ini");
-        bUseSpecular = GetPrivateProfileInt("Main", "bUseSpecular", 0, iniDir);
-        uiSpecularShine = GetPrivateProfileInt("Main", "uiSpecularShine", 65, iniDir);
-		bAllowForceUpdates = GetPrivateProfileInt("Main", "bAllowForceUpdates", 1, iniDir);
+        char cINIDir[MAX_PATH];
+        GetModuleFileNameA(GetModuleHandle(NULL), cINIDir, MAX_PATH);
+        strcpy((char*)(strrchr(cINIDir, '\\') + 1), "Data\\NVSE\\Plugins\\LOD Fixes.ini");
+        bUseSpecular        = GetPrivateProfileInt("Main", "bUseSpecular", 0, cINIDir);
+        bUseFullShader      = GetPrivateProfileInt("Main", "bUseFullShader", 0, cINIDir);
+        uiSpecularShine     = GetPrivateProfileInt("Main", "uiSpecularShine", 65, cINIDir);
+		bAllowForceUpdates  = GetPrivateProfileInt("Main", "bAllowForceUpdates", 0, cINIDir);
 
 		ReplaceCallEx(0x6FB0FB, &BGSTerrainChunk::InitializeShaderProperty);
         ReplaceCallEx(0x6F6011, &BGSDistantObjectBlock::Prepare);
@@ -507,22 +414,6 @@ bool NVSEPlugin_Load(NVSEInterface* nvse) {
         // Fix water LOD multibound height
         for (UInt32 uiAddr : {0x6FA964, 0x6FB0C0 })
             ReplaceCallEx(uiAddr, &BGSTerrainChunk::AttachWaterLOD);
-
-#if TREELOD
-		// Legacy patches, not needed anymore with latest LODGen
-        // Will be removed in the future
-        ReplaceCall(0x6F8621, BSMap__SetAt)
-        for (UInt32 uiAddr : {0x6F9342, 0x6FCCE2, 0x6FCFDF })
-            ReplaceCall(uiAddr, BGSDistantTreeBlock::HideLOD);
-
-        // Debug
-#if LOGGING
-        CreateDirectory("logs", NULL);
-        ReplaceCall(0x485B7D, GetFile);
-        ReplaceCall(0x6FE406, BGSDistantTreeBlock__BGSDistantTreeBlock);
-        SafeWrite32(0x106DED4, UInt32(BGSDistantTreeBlockLoadTask__Run));
-#endif
-#endif
 	}
 
 	return true;
